@@ -1,44 +1,56 @@
 @echo off
 echo =====================================================
 echo  Oracle SQL Tuner - Download Packages
-echo  Run this on a PC with internet access
+echo  인터넷 되는 PC에서 실행하세요 (집 PC 등)
 echo =====================================================
 echo.
 
-for /f "tokens=2 delims= " %%v in ('python --version 2^>^&1') do set PYVER=%%v
-echo Detected Python version: %PYVER%
-
-for /f "tokens=1,2 delims=." %%a in ("%PYVER%") do set PYMAJMIN=%%a.%%b
-echo Using version parameter: %PYMAJMIN%
-echo.
-
-if not exist packages mkdir packages
-
-echo [1/2] Downloading runtime packages (win_amd64, Python %PYMAJMIN%)...
-pip download -r requirements.txt -d packages ^
-    --platform win_amd64 ^
-    --python-version %PYMAJMIN% ^
-    --only-binary :all:
-
+rem Python 확인
+py -3.13 --version >nul 2>&1
 if %errorlevel% neq 0 (
-    echo.
-    echo [ERROR] Download failed.
-    echo PyQt6 may not have wheels for Python %PYMAJMIN%.
-    echo Try changing PYMAJMIN to 3.12 in this file manually.
+    echo [ERROR] Python 3.13이 없습니다.
+    pause
+    exit /b 1
+)
+
+if not exist packages_64  mkdir packages_64
+if not exist packages_32  mkdir packages_32
+if not exist packages_build mkdir packages_build
+
+echo [1/3] 64bit 패키지 다운로드 중 (win_amd64)...
+py -3.13 -m pip download PyQt6 oracledb sqlparse ^
+    --dest packages_64 ^
+    --platform win_amd64 ^
+    --python-version 3.13 ^
+    --only-binary :all:
+if %errorlevel% neq 0 (
+    echo [ERROR] 64bit 다운로드 실패
     pause
     exit /b 1
 )
 
 echo.
-echo [2/2] Downloading PyInstaller (for EXE build)...
-if not exist packages_build mkdir packages_build
-pip download pyinstaller -d packages_build
+echo [2/3] 32bit 패키지 다운로드 중 (win32)...
+py -3.13 -m pip download PyQt6 oracledb sqlparse ^
+    --dest packages_32 ^
+    --platform win32 ^
+    --python-version 3.13 ^
+    --only-binary :all:
+if %errorlevel% neq 0 (
+    echo [ERROR] 32bit 다운로드 실패
+    pause
+    exit /b 1
+)
 
 echo.
+echo [3/3] PyInstaller 다운로드 중 (빌드용)...
+py -3.13 -m pip download pyinstaller --dest packages_build
+echo.
+
 echo =====================================================
-echo  Download complete!
-echo  Copy these folders to the office PC:
-echo    packages\       - for install.bat
-echo    packages_build\ - for build_exe.bat
+echo  완료! 아래 폴더를 회사 PC에 통째로 복사하세요:
+echo    packages_64\    - 64bit Python 환경용
+echo    packages_32\    - 32bit Python 환경용
+echo    packages_build\ - EXE 빌드용 (빌드할 PC만)
 echo =====================================================
 pause
