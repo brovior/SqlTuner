@@ -63,53 +63,85 @@ class OracleClient:
         self._connection = None
         self._conn_info: Optional[ConnectionInfo] = None
         self._thick_initialized = False
+        self._thin_mode = False   # True면 Thin 모드로 연결된 상태
 
-    def init_thick_mode(self, lib_dir: str = None):
+    @property
+    def connection_mode(self) -> str:
+        """현재 연결 모드 반환 (Thick / Thin / 미연결)"""
+        if not self.is_connected:
+            return '미연결'
+        return 'Thin' if self._thin_mode else 'Thick'
+
+    def _try_init_thick_mode(self) -> str | None:
         """
-        Oracle 클라이언트 라이브러리를 사용하는 Thick 모드 초기화.
-        lib_dir 미지정 시 환경변수(ORACLE_HOME, PATH)에서 자동 탐색.
+        Thick 모드 초기화를 시도합니다.
+        성공하면 None, 실패하면 오류 메시지를 반환합니다.
+        """
+        if self._thick_initialized:
+            return None
+        try:
+            oracledb.init_oracle_client()
+            self._thick_initialized = True
+            return None
+        except Exception as e:
+            return str(e)
+
+    def connect(self, conn_info: ConnectionInfo) -> None:
+        """
+        TNS 별칭으로 Oracle DB에 연결합니다.
+        Thick 모드(64bit Oracle Client)를 먼저 시도하고,
+        DPI-1047(아키텍처 불일치) 등 실패 시 Thin 모드로 자동 전환합니다.
         """
         if not ORACLEDB_AVAILABLE:
             raise RuntimeError(
                 "oracledb 패키지가 설치되어 있지 않습니다.\n"
                 "install_online.bat 또는 install.bat을 실행하세요."
             )
-        if self._thick_initialized:
-            return
-        try:
-            if lib_dir:
-                oracledb.init_oracle_client(lib_dir=lib_dir)
-            else:
-                oracledb.init_oracle_client()
-            self._thick_initialized = True
-        except Exception as e:
-            raise RuntimeError(
-                f"Oracle 클라이언트 초기화 실패: {e}\n"
-                "Oracle Client가 설치되어 있고 PATH에 등록되어 있는지 확인하세요."
-            )
-
-    def connect(self, conn_info: ConnectionInfo) -> None:
-        """TNS 별칭으로 Oracle DB에 연결합니다."""
-        self.init_thick_mode()
 
         # tnsnames.ora 위치를 TNS_ADMIN으로 설정
+        tns_dir = None
         if conn_info.tns_filepath:
             tns_dir = os.path.dirname(conn_info.tns_filepath)
             os.environ['TNS_ADMIN'] = tns_dir
 
+        # 1차: Thick 모드 시도
+        thick_error = self._try_init_thick_mode()
+        if thick_error is None:
+            try:
+                self._connection = oracledb.connect(
+                    user=conn_info.username,
+                    password=conn_info.password,
+                    dsn=conn_info.tns_alias,
+                )
+                self._conn_info = conn_info
+                self._thin_mode = False
+                return
+            except oracledb.Error as e:
+                error_obj, = e.args
+                raise ConnectionError(
+                    f"DB 연결 실패 [{conn_info.tns_alias}]\n"
+                    f"오류코드: {error_obj.code}\n"
+                    f"메시지: {error_obj.message}"
+                )
+
+        # 2차: Thick 초기화 실패 시 Thin 모드로 폴백
+        # (DPI-1047: 32bit/64bit 불일치, Oracle Client 미설치 등)
         try:
             self._connection = oracledb.connect(
                 user=conn_info.username,
                 password=conn_info.password,
                 dsn=conn_info.tns_alias,
+                config_dir=tns_dir,   # tnsnames.ora 경로 직접 전달
             )
             self._conn_info = conn_info
+            self._thin_mode = True
         except oracledb.Error as e:
             error_obj, = e.args
             raise ConnectionError(
                 f"DB 연결 실패 [{conn_info.tns_alias}]\n"
                 f"오류코드: {error_obj.code}\n"
-                f"메시지: {error_obj.message}"
+                f"메시지: {error_obj.message}\n\n"
+                f"[Thick 모드 오류] {thick_error}"
             )
 
     def disconnect(self):
