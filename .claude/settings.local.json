@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(curl -s --max-time 10 \"https://pypi.org/pypi/python-oracledb/json\")"
+    ]
+  }
+}
