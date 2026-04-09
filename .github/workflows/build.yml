@@ -1,0 +1,61 @@
+name: Build EXE
+
+on:
+  push:
+    tags:
+      - 'v*'          # v1.0.0 같은 태그를 푸시하면 자동 빌드
+  workflow_dispatch:  # GitHub 웹에서 수동 실행 가능
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: 소스 체크아웃
+        uses: actions/checkout@v4
+
+      - name: Python 3.13 설치
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: 패키지 설치
+        run: |
+          python -m pip install --upgrade pip
+          pip install PyQt6 oracledb sqlparse pyinstaller
+
+      - name: EXE 빌드 (PyInstaller)
+        run: |
+          pyinstaller SQL_Tuner.spec
+
+      - name: 빌드 결과 확인
+        run: |
+          dir dist\
+
+      - name: 결과물 압축
+        run: |
+          Compress-Archive -Path "dist\SQL Tuner" -DestinationPath "SQL_Tuner_Windows.zip"
+
+      - name: Artifact 업로드 (Actions 탭에서 다운로드 가능)
+        uses: actions/upload-artifact@v4
+        with:
+          name: SQL_Tuner_Windows
+          path: SQL_Tuner_Windows.zip
+          retention-days: 30
+
+      - name: Release에 첨부 (태그 푸시 시에만)
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: SQL_Tuner_Windows.zip
+          body: |
+            ## SQL Tuner 배포 빌드
+
+            ### 설치 방법
+            1. `SQL_Tuner_Windows.zip` 다운로드 후 압축 해제
+            2. `SQL Tuner` 폴더를 원하는 위치에 복사
+            3. `SQL Tuner.exe` 실행
+
+            ### 주의사항
+            - Oracle Client가 설치된 PC에서만 DB 연결 가능
+            - Python 설치 불필요 (독립 실행형)

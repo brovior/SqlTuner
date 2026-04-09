@@ -82,8 +82,8 @@ class PlanWorker(QThread):
 
     def run(self):
         try:
-            plan_rows = self._client.explain_plan(self._sql)
-            xplan_text = self._client.get_dbms_xplan(self._sql)
+            # EXPLAIN PLAN 1회 실행으로 PlanRow + DBMS_XPLAN 텍스트 동시 획득
+            plan_rows, xplan_text = self._client.explain_plan(self._sql)
 
             analyzer = PlanAnalyzer(plan_rows)
             analyzer.build_tree()
@@ -225,8 +225,14 @@ class MainWindow(QMainWindow):
         layout = QVBoxLayout(widget)
         layout.setContentsMargins(4, 4, 4, 4)
 
-        self._stats_label = QLabel('DB에 연결 후 분석을 실행하면 V$SQL 통계를 조회합니다.')
+        self._stats_label = QLabel('V$SQL 통계는 실제 실행 이력을 조회합니다. 버튼을 눌러 수동으로 조회하세요.')
         self._stats_label.setWordWrap(True)
+
+        # 수동 조회 버튼 (자동 조회 제거 — V$SQL 전체 스캔 부하 방지)
+        self._btn_load_stats = QPushButton('V$SQL 통계 조회')
+        self._btn_load_stats.setFixedHeight(28)
+        self._btn_load_stats.setEnabled(False)
+        self._btn_load_stats.clicked.connect(self._on_load_stats_clicked)
 
         self._stats_table = QTableWidget(0, 8)
         self._stats_table.setHorizontalHeaderLabels([
@@ -241,6 +247,7 @@ class MainWindow(QMainWindow):
         self._stats_table.verticalHeader().setVisible(False)
 
         layout.addWidget(self._stats_label)
+        layout.addWidget(self._btn_load_stats)
         layout.addWidget(self._stats_table)
         self._result_tabs.addTab(widget, 'V$SQL 통계')
 
@@ -353,6 +360,7 @@ class MainWindow(QMainWindow):
         self._issues_table.setRowCount(0)
         self._issue_detail.clear()
         self._stats_table.setRowCount(0)
+        self._btn_load_stats.setEnabled(False)
 
     def _on_analysis_done(
         self,
@@ -373,9 +381,10 @@ class MainWindow(QMainWindow):
         all_issues = sql_issues + plan_issues
         self._populate_issues(all_issues)
 
-        # V$SQL 통계
-        sql_text = self._sql_editor.toPlainText().strip()
-        self._load_stats(sql_text)
+        # V$SQL 통계 버튼 활성화 (자동 조회 제거 — DB 부하 방지)
+        self._btn_load_stats.setEnabled(True)
+        self._stats_table.setRowCount(0)
+        self._stats_label.setText('V$SQL 통계 조회 버튼을 눌러 실행 이력을 확인하세요.')
 
         issue_count = len(all_issues)
         high_count = sum(1 for i in all_issues if i.severity == SEVERITY_HIGH)
@@ -477,9 +486,14 @@ class MainWindow(QMainWindow):
 
     # ── V$SQL 통계 ────────────────────────────────
 
-    def _load_stats(self, sql: str):
+    def _on_load_stats_clicked(self):
+        sql = self._sql_editor.toPlainText().strip()
+        if not sql:
+            return
+        self._btn_load_stats.setEnabled(False)
+        self._statusbar.showMessage('V$SQL 통계 조회 중...')
+        keyword = ' '.join(sql.split()[:8])
         try:
-            keyword = ' '.join(sql.split()[:8])
             stats_list = self._client.get_sql_stats(keyword)
             self._stats_table.setRowCount(len(stats_list))
             for i, s in enumerate(stats_list):
@@ -495,8 +509,14 @@ class MainWindow(QMainWindow):
                 ]
                 for col, val in enumerate(values):
                     self._stats_table.setItem(i, col, QTableWidgetItem(val))
-        except Exception:
-            pass
+            count = len(stats_list)
+            self._stats_label.setText(f'V$SQL 통계 조회 완료 — {count}건')
+            self._statusbar.showMessage(f'V$SQL 통계 {count}건 조회 완료', 3000)
+        except Exception as e:
+            self._stats_label.setText(f'조회 실패: {e}')
+            self._statusbar.showMessage('V$SQL 통계 조회 실패', 3000)
+        finally:
+            self._btn_load_stats.setEnabled(True)
 
     # ── 종료 시 연결 해제 ─────────────────────────
 

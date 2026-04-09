@@ -145,10 +145,11 @@ class OracleClient:
     # EXPLAIN PLAN
     # ------------------------------------------------------------------
 
-    def explain_plan(self, sql: str) -> list[PlanRow]:
+    def explain_plan(self, sql: str) -> tuple[list[PlanRow], str]:
         """
-        SQL의 EXPLAIN PLAN을 실행하고 PlanRow 목록을 반환합니다.
-        실제 실행하지 않으므로 안전합니다.
+        EXPLAIN PLAN을 1회만 실행하고 PlanRow 목록과 DBMS_XPLAN 텍스트를 함께 반환합니다.
+        DB 부하를 줄이기 위해 EXPLAIN PLAN을 한 번만 수행합니다.
+        실제 SQL을 실행하지 않으므로 안전합니다.
         """
         self._ensure_connected()
         statement_id = 'SQL_TUNER_PLAN'
@@ -161,12 +162,12 @@ class OracleClient:
                 sid=statement_id
             )
 
-            # EXPLAIN PLAN 실행
+            # EXPLAIN PLAN 1회 실행
             cursor.execute(
                 f"EXPLAIN PLAN SET STATEMENT_ID = '{statement_id}' FOR {sql}"
             )
 
-            # PLAN_TABLE에서 직접 조회 (V$SQL_PLAN보다 안정적)
+            # 1) PLAN_TABLE에서 PlanRow 조회
             cursor.execute("""
                 SELECT
                     ID,
@@ -201,8 +202,17 @@ class OracleClient:
                     depth=row[10] or 0,
                 ))
 
-            self._connection.rollback()  # EXPLAIN PLAN 롤백
-            return rows
+            # 2) 같은 statement_id로 DBMS_XPLAN 텍스트 조회 (추가 EXPLAIN PLAN 불필요)
+            cursor.execute("""
+                SELECT PLAN_TABLE_OUTPUT
+                FROM TABLE(DBMS_XPLAN.DISPLAY(
+                    'PLAN_TABLE', :sid, 'ALL'
+                ))
+            """, sid=statement_id)
+            xplan_lines = [row[0] for row in cursor.fetchall()]
+
+            self._connection.rollback()
+            return rows, '\n'.join(xplan_lines)
 
         except oracledb.Error as e:
             self._connection.rollback()
@@ -211,44 +221,6 @@ class OracleClient:
                 f"EXPLAIN PLAN 실행 오류\n"
                 f"오류코드: {error_obj.code}\n"
                 f"메시지: {error_obj.message}"
-            )
-        finally:
-            cursor.close()
-
-    def get_dbms_xplan(self, sql: str) -> str:
-        """
-        DBMS_XPLAN.DISPLAY 형식의 텍스트 플랜을 반환합니다.
-        Plan Tree와 함께 원문 텍스트도 제공합니다.
-        """
-        self._ensure_connected()
-        statement_id = 'SQL_TUNER_XPLAN'
-        cursor = self._connection.cursor()
-
-        try:
-            cursor.execute(
-                "DELETE FROM PLAN_TABLE WHERE STATEMENT_ID = :sid",
-                sid=statement_id
-            )
-            cursor.execute(
-                f"EXPLAIN PLAN SET STATEMENT_ID = '{statement_id}' FOR {sql}"
-            )
-
-            cursor.execute("""
-                SELECT PLAN_TABLE_OUTPUT
-                FROM TABLE(DBMS_XPLAN.DISPLAY(
-                    'PLAN_TABLE', :sid, 'ALL'
-                ))
-            """, sid=statement_id)
-
-            lines = [row[0] for row in cursor.fetchall()]
-            self._connection.rollback()
-            return '\n'.join(lines)
-
-        except oracledb.Error as e:
-            self._connection.rollback()
-            error_obj, = e.args
-            raise ValueError(
-                f"DBMS_XPLAN 조회 오류: {error_obj.message}"
             )
         finally:
             cursor.close()

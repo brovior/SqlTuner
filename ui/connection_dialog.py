@@ -189,7 +189,7 @@ class ConnectionDialog(QDialog):
             password=pwd,
             tns_filepath=self._tns_filepath,
         )
-        self._save_settings(alias, user)
+        self._save_settings(alias, user, pwd)
         self.accept()
 
     @property
