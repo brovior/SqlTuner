@@ -4,19 +4,33 @@ echo  Oracle SQL Tuner - Environment Check
 echo =====================================================
 echo.
 
-echo [1] Python
-py -3.13 --version 2>nul
-if %errorlevel% neq 0 (
-    echo    [ERROR] Python 3.13 not found in PATH
+rem 사용할 Python 결정 (32bit 우선)
+set PYTHON=
+py -3.13-32 --version >nul 2>&1
+if %errorlevel% equ 0 (
+    set PYTHON=py -3.13-32
 ) else (
-    echo    [OK]
+    py -3.13 --version >nul 2>&1
+    if %errorlevel% equ 0 set PYTHON=py -3.13
+)
+
+echo [1] Python
+if "%PYTHON%"=="" (
+    echo    [ERROR] Python 3.13을 찾을 수 없습니다
+) else (
+    %PYTHON% --version
+    echo    [OK] %PYTHON%
 )
 echo.
 
 echo [2] Required Packages
-py -3.13 -c "import PyQt6; print('   PyQt6      [OK]', PyQt6.QtCore.PYQT_VERSION_STR)" 2>nul || echo    PyQt6      [NOT INSTALLED]
-py -3.13 -c "import oracledb; print('   oracledb   [OK]', oracledb.__version__)" 2>nul || echo    oracledb   [NOT INSTALLED]
-py -3.13 -c "import sqlparse; print('   sqlparse   [OK]', sqlparse.__version__)" 2>nul || echo    sqlparse   [NOT INSTALLED]
+if not "%PYTHON%"=="" (
+    %PYTHON% -c "import PyQt6; print('   PyQt6      [OK]', PyQt6.QtCore.PYQT_VERSION_STR)" 2>nul || echo    PyQt6      [NOT INSTALLED]
+    %PYTHON% -c "import oracledb; print('   oracledb   [OK]', oracledb.__version__)" 2>nul || echo    oracledb   [NOT INSTALLED]
+    %PYTHON% -c "import sqlparse; print('   sqlparse   [OK]', sqlparse.__version__)" 2>nul || echo    sqlparse   [NOT INSTALLED]
+) else (
+    echo    Python 없음 - 패키지 확인 불가
+)
 echo.
 
 echo [3] Oracle Client
@@ -25,7 +39,7 @@ if %errorlevel% equ 0 (
     echo    [OK] sqlplus found in PATH
 ) else (
     echo    [NOT FOUND] Oracle Client not installed or not in PATH
-    echo    (At home: DB connection disabled, UI only)
+    echo    (Thin 모드로 자동 연결 시도합니다)
 )
 echo.
 
