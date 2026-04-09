@@ -301,9 +301,11 @@ class MainWindow(QMainWindow):
         try:
             self._client.connect(conn_info)
             self._update_connection_status()
-            self._statusbar.showMessage(
-                f'연결 성공: {self._client.current_connection_label}', 5000
-            )
+            mode = self._client.connection_mode
+            msg = f'연결 성공: {self._client.current_connection_label} [{mode} 모드]'
+            if mode == 'Thin':
+                msg += '  ※ Oracle Client 미사용 (32bit 충돌 → Thin 모드로 연결)'
+            self._statusbar.showMessage(msg, 7000)
         except (RuntimeError, ConnectionError) as e:
             QMessageBox.critical(self, 'DB 연결 실패', str(e))
             self._statusbar.showMessage('연결 실패', 3000)
@@ -321,9 +323,10 @@ class MainWindow(QMainWindow):
 
         if connected:
             label = self._client.current_connection_label
-            self._conn_label.setText(f'  연결됨: {label}')
+            mode  = self._client.connection_mode   # Thick / Thin
+            self._conn_label.setText(f'  연결됨: {label}  [{mode}]')
             self._conn_label.setStyleSheet('color: #006600; font-weight: bold;')
-            self.setWindowTitle(f'Oracle SQL Tuner  [{label}]')
+            self.setWindowTitle(f'Oracle SQL Tuner  [{label}] [{mode}]')
         else:
             self._conn_label.setText('  미연결')
             self._conn_label.setStyleSheet('color: #888888; font-weight: bold;')
