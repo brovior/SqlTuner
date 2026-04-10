@@ -5,13 +5,13 @@ tnsnames.ora에서 TNS 별칭을 읽어 드롭다운으로 제공합니다.
 """
 import os
 import base64
-from PyQt6.QtWidgets import (
+from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QFormLayout,
     QLabel, QLineEdit, QComboBox, QPushButton,
     QFileDialog, QMessageBox, QGroupBox
 )
-from PyQt6.QtCore import Qt, QSettings
-from PyQt6.QtGui import QFont
+from PyQt5.QtCore import Qt, QSettings
+from PyQt5.QtGui import QFont
 
 from core.tns_parser import find_tnsnames_path, get_alias_list
 from core.oracle_client import ConnectionInfo
@@ -32,7 +32,7 @@ class ConnectionDialog(QDialog):
 
         self._tns_filepath = ''
         self._result: ConnectionInfo | None = None
-        self._settings = QSettings(_CONFIG_PATH, QSettings.Format.IniFormat)
+        self._settings = QSettings(_CONFIG_PATH, QSettings.IniFormat)
 
         self._build_ui()
         self._load_tnsnames_auto()
@@ -63,7 +63,7 @@ class ConnectionDialog(QDialog):
         # -- 연결 정보 폼 --
         conn_group = QGroupBox('연결 정보')
         form = QFormLayout(conn_group)
-        form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
+        form.setLabelAlignment(Qt.AlignRight)
         form.setSpacing(10)
 
         self._alias_combo = QComboBox()
@@ -77,7 +77,7 @@ class ConnectionDialog(QDialog):
         form.addRow('사용자명:', self._user_edit)
 
         self._pwd_edit = QLineEdit()
-        self._pwd_edit.setEchoMode(QLineEdit.EchoMode.Password)
+        self._pwd_edit.setEchoMode(QLineEdit.Password)
         self._pwd_edit.setPlaceholderText('비밀번호')
         form.addRow('비밀번호:', self._pwd_edit)
 

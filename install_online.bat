@@ -1,4 +1,5 @@
 @echo off
+chcp 65001 >nul
 echo =====================================================
 echo  Oracle SQL Tuner - Online Install (Internet required)
 echo =====================================================
@@ -27,7 +28,7 @@ exit /b 1
 :install
 echo Installing packages...
 echo.
-%PYTHON% -m pip install PyQt6 oracledb sqlparse
+%PYTHON% -m pip install PyQt5 oracledb sqlparse
 
 if %errorlevel% neq 0 (
     echo.

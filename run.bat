@@ -1,4 +1,5 @@
 @echo off
+chcp 65001 >nul
 cd /d "%~dp0"
 
 rem 32bit Python 우선 시도 (32bit Oracle Client 환경 대응)

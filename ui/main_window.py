@@ -3,17 +3,18 @@
 """
 from __future__ import annotations
 import re
-from PyQt6.QtWidgets import (
+from PyQt5.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QSplitter, QTextEdit, QTabWidget, QTreeWidget, QTreeWidgetItem,
     QTableWidget, QTableWidgetItem, QPushButton, QLabel,
     QStatusBar, QToolBar, QMessageBox, QHeaderView,
-    QPlainTextEdit, QGroupBox, QFrame
+    QPlainTextEdit, QGroupBox, QFrame, QAction, QAbstractItemView,
+    QDialog
 )
-from PyQt6.QtCore import Qt, QThread, pyqtSignal, QSize
-from PyQt6.QtGui import (
+from PyQt5.QtCore import Qt, QThread, pyqtSignal, QSize
+from PyQt5.QtGui import (
     QFont, QColor, QTextCharFormat, QSyntaxHighlighter,
-    QAction, QIcon, QPalette
+    QIcon, QPalette
 )
 
 from core.oracle_client import OracleClient, PlanRow
@@ -123,7 +124,7 @@ class MainWindow(QMainWindow):
         main_layout.setContentsMargins(6, 6, 6, 6)
         main_layout.setSpacing(6)
 
-        splitter = QSplitter(Qt.Orientation.Vertical)
+        splitter = QSplitter(Qt.Vertical)
 
         # 상단: SQL 편집기
         editor_group = QGroupBox('SQL 입력')
@@ -179,7 +180,7 @@ class MainWindow(QMainWindow):
         self._plan_tree.setHeaderLabels([
             'ID', 'Operation', '테이블/인덱스', 'Cost', '예측 행수', 'Bytes'
         ])
-        self._plan_tree.header().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        self._plan_tree.header().setSectionResizeMode(1, QHeaderView.Stretch)
         self._plan_tree.setAlternatingRowColors(True)
         self._plan_tree.setFont(QFont('Consolas', 10))
 
@@ -190,7 +191,7 @@ class MainWindow(QMainWindow):
         self._xplan_text = QPlainTextEdit()
         self._xplan_text.setReadOnly(True)
         self._xplan_text.setFont(QFont('Consolas', 10))
-        self._xplan_text.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
+        self._xplan_text.setLineWrapMode(QPlainTextEdit.NoWrap)
         self._result_tabs.addTab(self._xplan_text, 'DBMS_XPLAN')
 
     def _build_issues_tab(self):
@@ -201,10 +202,10 @@ class MainWindow(QMainWindow):
         self._issues_table = QTableWidget(0, 4)
         self._issues_table.setHorizontalHeaderLabels(['심각도', '분류', '제목', '설명'])
         self._issues_table.horizontalHeader().setSectionResizeMode(
-            3, QHeaderView.ResizeMode.Stretch
+            3, QHeaderView.Stretch
         )
-        self._issues_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
-        self._issues_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self._issues_table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self._issues_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self._issues_table.setAlternatingRowColors(True)
         self._issues_table.verticalHeader().setVisible(False)
         self._issues_table.itemSelectionChanged.connect(self._on_issue_selected)
@@ -240,9 +241,9 @@ class MainWindow(QMainWindow):
             'Buffer Gets', 'Disk Reads', '처리행수', 'Parse호출'
         ])
         self._stats_table.horizontalHeader().setSectionResizeMode(
-            QHeaderView.ResizeMode.ResizeToContents
+            QHeaderView.ResizeToContents
         )
-        self._stats_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self._stats_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self._stats_table.setAlternatingRowColors(True)
         self._stats_table.verticalHeader().setVisible(False)
 
@@ -292,7 +293,7 @@ class MainWindow(QMainWindow):
 
     def _on_connect(self):
         dlg = ConnectionDialog(self)
-        if dlg.exec() != ConnectionDialog.DialogCode.Accepted:
+        if dlg.exec() != QDialog.Accepted:
             return
 
         conn_info = dlg.connection_info
