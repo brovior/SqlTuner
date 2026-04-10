@@ -1,4 +1,5 @@
 @echo off
+chcp 65001 >nul
 echo =====================================================
 echo  Oracle SQL Tuner - Environment Check
 echo =====================================================
@@ -25,7 +26,7 @@ echo.
 
 echo [2] Required Packages
 if not "%PYTHON%"=="" (
-    %PYTHON% -c "import PyQt6; print('   PyQt6      [OK]', PyQt6.QtCore.PYQT_VERSION_STR)" 2>nul || echo    PyQt6      [NOT INSTALLED]
+    %PYTHON% -c "import PyQt5; print('   PyQt5      [OK]', PyQt5.QtCore.PYQT_VERSION_STR)" 2>nul || echo    PyQt5      [NOT INSTALLED]
     %PYTHON% -c "import oracledb; print('   oracledb   [OK]', oracledb.__version__)" 2>nul || echo    oracledb   [NOT INSTALLED]
     %PYTHON% -c "import sqlparse; print('   sqlparse   [OK]', sqlparse.__version__)" 2>nul || echo    sqlparse   [NOT INSTALLED]
 ) else (

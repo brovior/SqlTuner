@@ -1,4 +1,5 @@
 @echo off
+chcp 65001 >nul
 echo =====================================================
 echo  Oracle SQL Tuner - Offline Install
 echo  인터넷 없는 PC에서 실행하세요
@@ -46,7 +47,7 @@ if not exist "%PACKAGES_DIR%" (
 echo [INFO] %PACKAGES_DIR% 에서 설치합니다...
 echo.
 
-%PYTHON% -m pip install --no-index --find-links="%PACKAGES_DIR%" PyQt6 oracledb sqlparse
+%PYTHON% -m pip install --no-index --find-links="%PACKAGES_DIR%" PyQt5 oracledb sqlparse
 
 if %errorlevel% neq 0 (
     echo.

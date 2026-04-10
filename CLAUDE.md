@@ -18,7 +18,7 @@
 | 항목 | 사용 기술 | 역할 |
 |------|-----------|------|
 | 언어 | Python 3.13 | 전체 로직 |
-| GUI | PyQt6 | 창, 버튼, 테이블 등 화면 구성 |
+| GUI | PyQt5 | 창, 버튼, 테이블 등 화면 구성 |
 | DB 연결 | oracledb | Oracle DB와 통신 |
 | SQL 파싱 | sqlparse | SQL 텍스트 구조 분석 |
 | 배포 | PyInstaller | Python 없이 실행 가능한 .exe로 변환 |
@@ -117,8 +117,11 @@ DB 연결 정보를 입력하는 창. 마지막 입력값을 자동으로 기억
 
 Python 3.13 이 필요합니다. (3.14는 oracledb 패키지 미지원)
 
-python.org에서 **"Windows installer (64-bit)"** 를 받아 설치하세요.
+python.org에서 **"Windows installer (32-bit)"** 를 받아 설치하세요.
 설치 시 **"Add python.exe to PATH" 체크 해제** (다른 버전과 충돌 방지)
+
+> **중요:** 회사 환경이 **Oracle Client 32bit** 이므로 Python도 반드시 **32bit** 사용.
+> 64bit Python + 32bit Oracle Client 조합은 DPI-1047 오류 발생.
 
 ### 2. 패키지 설치
 ```bash
@@ -126,14 +129,14 @@ python.org에서 **"Windows installer (64-bit)"** 를 받아 설치하세요.
 install_online.bat
 
 # 또는 직접 설치
-py -3.13 -m pip install PyQt6 oracledb sqlparse
+py -3.13-32 -m pip install PyQt5 oracledb sqlparse
 ```
 
 ### 3. 실행
 ```bash
 run.bat
 # 또는
-py -3.13 main.py
+py -3.13-32 main.py
 ```
 
 ### 3. 환경 점검
