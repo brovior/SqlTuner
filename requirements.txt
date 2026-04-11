@@ -1,6 +1,0 @@
-oracledb>=3.4.0
-PyQt5>=5.15.0
-PyQt5-Qt5>=5.15.0
-PyQt5-sip>=12.15
-sqlparse>=0.5.0
-pyinstaller==6.10.0
