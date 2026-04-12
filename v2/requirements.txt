@@ -1,0 +1,10 @@
+# Oracle SQL Tuner v2 의존 패키지
+# 설치: py -3.13-32 -m pip install -r v2/requirements.txt
+#
+# 중요: Python 3.13 32-bit 사용 (Oracle Client 32bit 환경)
+#       pip 패키지명: oracledb (구: python-oracledb)
+
+PyQt5>=5.15
+oracledb>=2.0
+sqlglot>=25.0
+pytest>=8.0

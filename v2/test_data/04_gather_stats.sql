@@ -1,0 +1,11 @@
+-- ============================================
+-- SQL Tuner v2 - 통계 수집
+-- ============================================
+BEGIN
+    DBMS_STATS.GATHER_TABLE_STATS(USER, 'TUNING_CUSTOMER',  CASCADE => TRUE);
+    DBMS_STATS.GATHER_TABLE_STATS(USER, 'TUNING_PRODUCT',   CASCADE => TRUE);
+    DBMS_STATS.GATHER_TABLE_STATS(USER, 'TUNING_ORDERS',    CASCADE => TRUE);
+    DBMS_STATS.GATHER_TABLE_STATS(USER, 'TUNING_ORDER_ITEM', CASCADE => TRUE);
+END;
+/
+COMMIT;
