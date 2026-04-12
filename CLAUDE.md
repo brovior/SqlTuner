@@ -104,6 +104,7 @@ SQL 입력창에 SQL 작성
 - `Ctrl+Enter` 단축키로 빠르게 분석 가능
 - 바인드 변수(`:변수명`) 포함 SQL도 분석 가능 (값 입력 다이얼로그 자동 표시)
 - 로직에 큰 변화가 있을시에는 자동으로 claude.md 파일을 update 할 것.
+- 신규 의존성이 생길떄는 requirements.txt 파일에 update할 것
 - 소스 구조 변경사항이 있을시에는 ARCHITECTURE.md에 update 할 것.
 - 소스 변경이 끝나면 test case에 대해서 가이드 할 것.
 ---

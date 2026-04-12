@@ -6,7 +6,7 @@ services:
     ports:
       - "1521:1521"
     environment:
-      - ORACLE_PASSWORD=your_password
+      - ORACLE_PASSWORD=test123
     volumes:
       - oracle-data:/opt/oracle/oradata
     restart: unless-stopped
