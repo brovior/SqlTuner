@@ -53,8 +53,15 @@ class CompositeAnalyzer(SqlAnalyzer):
             pass
 
         # ── ③ 병합: AST 결과 우선, Regex 전용 이슈 추가 ─────────────────
+        # (category, title) 완전 일치 + category 단독 일치 모두 제거
+        # → Regex가 같은 범주를 다른 title로 재감지하는 중복 방지
         ast_keys = {(i.category, i.title) for i in ast_issues}
-        regex_only = [i for i in regex_issues if (i.category, i.title) not in ast_keys]
+        ast_categories = {i.category for i in ast_issues}
+        regex_only = [
+            i for i in regex_issues
+            if (i.category, i.title) not in ast_keys
+            and i.category not in ast_categories
+        ]
 
         merged = ast_issues + regex_only
 

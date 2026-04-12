@@ -8,4 +8,5 @@
 PyQt5>=5.15
 oracledb>=2.0
 sqlglot>=25.0
+openai>=1.0
 pytest>=8.0

@@ -40,7 +40,7 @@ def test_where_function_clean(ana):
 def test_implicit_conversion_detected(ana):
     sql = "SELECT * FROM emp WHERE empno = '7788'"
     issues = ana.analyze(sql)
-    assert any('형변환' in i.title or '묵시적' in i.title for i in issues), issues
+    assert any(i.category == '묵시적 형변환' for i in issues), issues
 
 
 def test_implicit_conversion_string_ok(ana):
@@ -48,6 +48,58 @@ def test_implicit_conversion_string_ok(ana):
     sql = "SELECT * FROM emp WHERE ename = 'SMITH'"
     issues = ana.analyze(sql)
     assert not any('형변환' in i.title or '묵시적' in i.title for i in issues)
+
+
+# ── 묵시적 형변환 강화 (P1/P2/P3) ───────────────────────────────
+
+def test_implicit_conversion_p1_high_severity(ana):
+    """P1: 숫자 컬럼에 문자열 리터럴 → severity=HIGH"""
+    sql = "SELECT * FROM emp WHERE empno = '1234'"
+    issues = ana.analyze(sql)
+    conv = [i for i in issues if '형변환' in i.category]
+    assert conv, "묵시적 형변환 이슈가 감지되지 않음"
+    assert all(i.severity == 'HIGH' for i in conv), \
+        f"severity 가 HIGH 여야 함: {[i.severity for i in conv]}"
+
+
+def test_implicit_conversion_p2_to_number(ana):
+    """P2: TO_NUMBER(컬럼) = 숫자 → 형변환 함수 직접 적용"""
+    sql = "SELECT * FROM emp WHERE TO_NUMBER(emp_id) = 10"
+    issues = ana.analyze(sql)
+    conv = [i for i in issues if '형변환' in i.category]
+    assert conv, "묵시적 형변환 이슈가 감지되지 않음"
+    assert any('TO_NUMBER' in i.title for i in conv), \
+        f"TO_NUMBER 가 title에 포함돼야 함: {[i.title for i in conv]}"
+    assert all(i.severity == 'HIGH' for i in conv)
+
+
+def test_implicit_conversion_p2_no_dup_with_function_check(ana):
+    """P2: TO_NUMBER 는 _check_function_on_where_col 과 중복 감지되지 않아야 함"""
+    sql = "SELECT * FROM emp WHERE TO_NUMBER(emp_id) = 10"
+    issues = ana.analyze(sql)
+    # 같은 컬럼·함수에 대해 '인덱스 무효화' + '묵시적 형변환' 동시 발생하면 중복
+    index_issues = [i for i in issues if '인덱스' in i.category and 'TO_NUMBER' in i.title]
+    assert not index_issues, \
+        f"TO_NUMBER 가 인덱스 무효화로 중복 감지됨: {[i.title for i in index_issues]}"
+
+
+def test_implicit_conversion_p3_concat_empty(ana):
+    """P3: Column || '' = '값' → 문자열 연결 형변환"""
+    sql = "SELECT * FROM emp WHERE salary || '' = '5000'"
+    issues = ana.analyze(sql)
+    conv = [i for i in issues if '형변환' in i.category]
+    assert conv, "묵시적 형변환 이슈가 감지되지 않음"
+    assert any('||' in i.title or '연결' in i.title for i in conv), \
+        f"|| 패턴 title 이 없음: {[i.title for i in conv]}"
+    assert all(i.severity == 'HIGH' for i in conv)
+
+
+def test_implicit_conversion_bind_var_no_issue(ana):
+    """바인드 변수(:b1) — 타입 불명이므로 형변환 이슈 없어야 함"""
+    sql = "SELECT * FROM emp WHERE deptno = :b1"
+    issues = ana.analyze(sql)
+    assert not any('형변환' in i.category for i in issues), \
+        f"바인드 변수에서 오탐: {[i.title for i in issues]}"
 
 
 # ── NOT IN 서브쿼리 ──────────────────────────────────────────────
