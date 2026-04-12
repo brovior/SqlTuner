@@ -1,4 +1,4 @@
-# SQL Tuner - 프로젝트 안내서
+# SQL Tuner v2 - 프로젝트 안내서
 
 > Oracle DB의 SQL 성능을 분석하고 개선 제안을 해주는 **Windows 데스크톱 앱**입니다.
 
@@ -10,6 +10,7 @@
 1. Oracle DB에 실행 계획(EXPLAIN PLAN)을 요청한다
 2. 실행 계획을 분석해서 문제점을 찾아낸다
 3. 어떻게 고치면 좋을지 제안을 보여준다
+4. AI를 활용해 SQL 재작성 및 추가 튜닝 제안을 제공한다
 
 ---
 
@@ -17,13 +18,13 @@
 
 | 항목 | 사용 기술 | 역할 |
 |------|-----------|------|
-| 언어 | Python 3.13 | 전체 로직 |
+| 언어 | Python 3.13 (32-bit) | 전체 로직 |
 | GUI | PyQt5 | 창, 버튼, 테이블 등 화면 구성 |
 | DB 연결 | oracledb | Oracle DB와 통신 |
-| SQL 파싱 | sqlparse | SQL 텍스트 구조 분석 |
+| SQL 파싱 | sqlglot | AST 기반 SQL 구조 분석 및 재작성 |
 | 배포 | PyInstaller | Python 없이 실행 가능한 .exe로 변환 |
 
-> **주의:** pip 패키지 이름이 `python-oracledb`에서 `oracledb`로 변경됨 (2025년 이후)
+> **중요:** Python과 Oracle Client 모두 **32-bit** 사용. 64bit + 32bit 혼용 시 DPI-1047 오류 발생.
 
 ---
 
@@ -31,145 +32,42 @@
 
 ```
 SQL Tuner/
-├── main.py                  # 앱 시작점 (여기서 실행)
-├── requirements.txt         # 필요한 패키지 목록
-├── SQL_Tuner.spec           # .exe 빌드 설정
+├── run_v2.bat               # 앱 실행
+├── check_env_v2.bat         # 환경 점검
+├── install_online_v2.bat    # 패키지 설치
+├── build_exe_v2.bat         # .exe 빌드
+├── run_tests_v2.bat         # 테스트 실행
 │
-├── core/                    # 핵심 로직 (DB 연결, 분석)
-│   ├── oracle_client.py     # Oracle DB 연결 및 쿼리 실행
-│   ├── plan_analyzer.py     # 실행 계획에서 문제 찾기
-│   ├── tns_parser.py        # tnsnames.ora 파일 읽기
-│   └── tuning_rules.py      # SQL 텍스트에서 문제 찾기
+├── docs/
+│   ├── ARCHITECTURE.md      # 모듈/파일 상세 역할 설명
+│   └── SETUP.md             # 개발 환경 설정 및 배포 안내
 │
-├── ui/                      # 화면 구성
-│   ├── main_window.py       # 메인 창 (SQL 입력, 결과 탭)
-│   └── connection_dialog.py # DB 연결 설정 창
-│
-└── *.bat                    # Windows 편의 스크립트
+└── v2/                      # 소스코드
+    ├── main.py
+    ├── core/
+    │   ├── ai/              # AI 튜닝 (ai_provider, ai_tuner)
+    │   ├── analysis/        # SQL 정적 분석 (ast, regex, composite)
+    │   ├── db/              # DB 연동 (oracle_client, plan_analyzer, tns_parser)
+    │   ├── pipeline/        # 분석 파이프라인 (validation)
+    │   └── rewrite/         # SQL 재작성 (ast, regex, composite)
+    ├── ui/
+    │   ├── main_window.py
+    │   ├── dialogs/         # 다이얼로그 (connection, ai_settings, bind_vars)
+    │   ├── widgets/         # 탭 위젯 (plan_tree, xplan, issues, rewrite, stats, result)
+    │   └── workers/         # 백그라운드 워커 (plan, execute, validate, ai_tune)
+    └── tests/               # 단위 테스트
 ```
 
 ---
 
-## 파일별 역할 설명
-
-### core/oracle_client.py
-Oracle DB와 실제로 통신하는 모듈.
-
-- `OracleClient` 클래스가 핵심
-- `connect()` : DB에 접속
-- `explain_plan()` : SQL의 실행 계획을 가져옴
-- `get_dbms_xplan()` : Oracle이 보여주는 텍스트 형태 플랜
-- `get_sql_stats()` : 실제로 실행된 SQL의 성능 이력 조회
-- **Oracle Thick Mode** 사용 → 컴퓨터에 Oracle Client가 설치되어 있어야 함
-
-### core/plan_analyzer.py
-가져온 실행 계획에서 성능 문제를 찾는 모듈.
-
-감지하는 문제 7가지:
-| 문제 | 심각도 |
-|------|--------|
-| Full Table Scan (전체 테이블 조회) | HIGH |
-| Cartesian Join (조건 없는 조인) | HIGH |
-| SORT DISK 사용 (메모리 부족) | HIGH |
-| Index Full Scan | MEDIUM |
-| 비용이 집중된 노드 | INFO |
-| 대용량 Nested Loop Join | MEDIUM |
-| 테이블 통계 없음 | MEDIUM |
-
-### core/tuning_rules.py
-SQL 텍스트 자체를 읽어서 나쁜 패턴을 찾는 모듈.
-
-감지하는 패턴 10가지:
-| 패턴 | 심각도 |
-|------|--------|
-| `UPDATE/DELETE` WHERE 절 없음 | HIGH |
-| `WHERE 컬럼함수()` (인덱스 무효화) | MEDIUM |
-| 묵시적 형변환 (숫자컬럼 = '숫자') | MEDIUM |
-| `NOT IN` 서브쿼리 NULL 위험 | MEDIUM |
-| `LIKE '%값'` 앞 와일드카드 | MEDIUM |
-| 스칼라 서브쿼리 3개 이상 | MEDIUM |
-| `SELECT *` 사용 | LOW |
-| OR 조건 3개 이상 | LOW |
-| DISTINCT + JOIN 조합 | INFO |
-| UNION (UNION ALL 고려) | INFO |
-
-### core/tns_parser.py
-Oracle 연결 정보가 담긴 `tnsnames.ora` 파일을 자동으로 찾아서 읽는 모듈.
-- 환경변수 `TNS_ADMIN` → `ORACLE_HOME` → 일반 설치 경로 순서로 탐색
-
-### ui/main_window.py
-메인 화면. 탭 4개로 구성:
-1. **Plan Tree** : 실행 계획을 계층 트리로 표시 (FTS는 빨간색)
-2. **DBMS_XPLAN** : Oracle이 출력하는 텍스트 형식 플랜
-3. **튜닝 제안** : 감지된 문제 목록 + 개선 방법
-4. **V$SQL 통계** : 실제 실행 이력 (횟수, 소요 시간, I/O)
-
-분석은 백그라운드 스레드(`PlanWorker`)에서 실행되므로 UI가 멈추지 않는다.
-
-### ui/connection_dialog.py
-DB 연결 정보를 입력하는 창. 마지막 입력값을 자동으로 기억한다 (QSettings 사용).
-
----
-
-## 개발 환경 설정
-
-### 1. Python 설치
-
-Python 3.13 이 필요합니다. (3.14는 oracledb 패키지 미지원)
-
-python.org에서 **"Windows installer (32-bit)"** 를 받아 설치하세요.
-설치 시 **"Add python.exe to PATH" 체크 해제** (다른 버전과 충돌 방지)
-
-> **중요:** 회사 환경이 **Oracle Client 32bit** 이므로 Python도 반드시 **32bit** 사용.
-> 64bit Python + 32bit Oracle Client 조합은 DPI-1047 오류 발생.
-
-### 2. 패키지 설치
-```bash
-# 인터넷 연결 있을 때
-install_online.bat
-
-# 또는 직접 설치
-py -3.13-32 -m pip install PyQt5 oracledb sqlparse
-```
-
-### 3. 실행
-```bash
-run.bat
-# 또는
-py -3.13-32 main.py
-```
-
-### 3. 환경 점검
-```bash
-check_env.bat
-# Python, 패키지, Oracle Client 설치 여부를 자동으로 확인해줌
-```
-
----
-
-## .exe 파일로 배포하기
-
-Python이 없는 PC에서도 실행할 수 있게 단일 폴더로 만드는 방법:
-
-```bash
-build_exe.bat
-```
-
-빌드 완료 후 `dist/SQL Tuner/` 폴더가 생성됨. 이 폴더째로 복사하면 배포 완료.
-
-> 단, 실행하는 PC에 **Oracle Client는 별도로 설치**되어 있어야 한다.
-
----
-
-## 앱 실행 흐름 (한눈에 보기)
+## 앱 실행 흐름
 
 ```
 앱 실행
   │
   ▼
 [DB 연결] 버튼 클릭
-  │  → tnsnames.ora 자동 탐색
-  │  → TNS 별칭 목록 표시
+  │  → tnsnames.ora 자동 탐색 → TNS 별칭 목록 표시
   │  → 사용자명 / 비밀번호 입력
   │
   ▼
@@ -179,14 +77,17 @@ Oracle DB 접속 성공 → 상태바에 "연결됨" 표시
 SQL 입력창에 SQL 작성
   │
   ▼
-[실행 계획 분석] 클릭 (또는 Ctrl+Enter)
+[실행 계획 분석] 클릭 (Ctrl+Enter)
+  │
+  ├─ SQL에 :변수명 있으면 → 바인드 변수 값 입력 다이얼로그
   │
   ▼
 백그라운드에서 분석 실행
-  ├─ EXPLAIN PLAN 조회
+  ├─ EXPLAIN PLAN 조회 (바인드 변수 포함 시 oracledb 바인드로 전달)
   ├─ DBMS_XPLAN 텍스트 조회
-  ├─ 실행 계획 이슈 분석 (7가지 규칙)
-  ├─ SQL 텍스트 이슈 분석 (10가지 규칙)
+  ├─ 실행 계획 이슈 분석
+  ├─ AST + 정규식 이슈 분석
+  ├─ SQL 재작성 제안
   └─ V$SQL 실행 이력 조회
   │
   ▼
@@ -197,20 +98,31 @@ SQL 입력창에 SQL 작성
 
 ## 주의사항
 
-- Oracle **Thick Client**가 설치된 환경에서만 동작 (thin 모드 미사용)
+- Oracle **Thick Client**가 설치된 환경에서만 최적 동작 (설치 없으면 Thin 모드로 자동 전환)
 - DB 계정에 `PLAN_TABLE` 쓰기 권한과 `V$SQL` 조회 권한이 필요
 - Windows 전용 배포 (`.bat` 스크립트 기반)
 - `Ctrl+Enter` 단축키로 빠르게 분석 가능
-
+- 바인드 변수(`:변수명`) 포함 SQL도 분석 가능 (값 입력 다이얼로그 자동 표시)
+- 로직에 큰 변화가 있을시에는 자동으로 claude.md 파일을 update 할 것.
+- 소스 구조 변경사항이 있을시에는 ARCHITECTURE.md에 update 할 것.
+- 소스 변경이 끝나면 test case에 대해서 가이드 할 것.
 ---
 
 ## 코드 수정 시 참고사항
 
 | 하고 싶은 것 | 수정할 파일 |
 |-------------|------------|
-| 새로운 실행 계획 분석 규칙 추가 | `core/plan_analyzer.py` |
-| 새로운 SQL 안티패턴 추가 | `core/tuning_rules.py` |
-| 화면 레이아웃 변경 | `ui/main_window.py` |
-| DB 연결 방식 변경 | `core/oracle_client.py` |
-| 연결 다이얼로그 수정 | `ui/connection_dialog.py` |
-| .exe 빌드 설정 변경 | `SQL_Tuner.spec` |
+| 새로운 실행 계획 분석 규칙 | `v2/core/db/plan_analyzer.py` |
+| 새로운 SQL 안티패턴 (AST) | `v2/core/analysis/ast_analyzer.py` |
+| 새로운 SQL 안티패턴 (정규식) | `v2/core/analysis/regex_analyzer.py` |
+| SQL 재작성 로직 | `v2/core/rewrite/` |
+| 화면 레이아웃 | `v2/ui/main_window.py` |
+| 탭 위젯 | `v2/ui/widgets/` |
+| DB 연결 방식 | `v2/core/db/oracle_client.py` |
+| 연결 다이얼로그 | `v2/ui/dialogs/connection_dialog.py` |
+| AI 설정 | `v2/ui/dialogs/ai_settings_dialog.py` |
+| 바인드 변수 다이얼로그 | `v2/ui/dialogs/bind_vars_dialog.py` |
+| .exe 빌드 설정 | `v2/SQL_Tuner_v2.spec` |
+
+> 상세 모듈 설명 → [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)  
+> 개발 환경 설정 → [docs/SETUP.md](docs/SETUP.md)

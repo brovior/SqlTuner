@@ -1,0 +1,8 @@
+-- ============================================
+-- SQL Tuner v2 - 테스트 테이블 정리
+-- ============================================
+DROP TABLE TUNING_ORDER_ITEM CASCADE CONSTRAINTS;
+DROP TABLE TUNING_ORDERS     CASCADE CONSTRAINTS;
+DROP TABLE TUNING_PRODUCT    CASCADE CONSTRAINTS;
+DROP TABLE TUNING_CUSTOMER   CASCADE CONSTRAINTS;
+COMMIT;
