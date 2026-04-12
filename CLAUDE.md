@@ -140,3 +140,20 @@ SQL 입력창에 SQL 작성
 
 > 상세 모듈 설명 → [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)  
 > 개발 환경 설정 → [docs/SETUP.md](docs/SETUP.md)
+
+
+## 마지막 작업 현황 (2026-04-13)
+- DBA 로드맵 6단계 진행 중
+- 완료: STEP 6-1 (oracle_client 통계 조회 메서드)
+- 완료: STEP 6-2 (StatsAdvisor 로직 구현)
+- 완료: STEP 6-3 (UI 연동)
+  - oracle_client.py: check_stats_privilege(), execute_stats_collection() 추가
+  - stats_advisor.py: _generate_sql OWNNAME => USER 수정
+  - plan_worker.py: StatsAdvisor 실행 + 시그널 확장 (stats_infos, stats_advices, has_stats_privilege)
+  - stats_tab.py: 테이블 통계 현황 섹션 추가 (색상 코딩, 스크립트, 실행/복사 버튼)
+  - main_window.py: 연결 시 check_stats_privilege() 1회 호출, _on_analysis_done 연결
+- 완료: STEP 6-4 (단위 테스트) — 159 passed
+  - test_oracle_client_stats.py: check_stats_privilege (5개), execute_stats_collection (6개) 추가
+  - test_stats_advisor.py: TestSuggestedSqlFormat (4개, OWNNAME => USER 검증) 추가
+- 6단계 전체 완료
+- 다음 작업: 7단계 또는 신규 기능 논의

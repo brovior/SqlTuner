@@ -11,6 +11,7 @@ except ImportError:
 
 import os
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import Optional
 
 
@@ -910,40 +911,81 @@ class OracleClient:
         finally:
             cursor.close()
 
-    def get_table_stats(self, table_name: str, owner: str = None) -> dict:
-        """테이블 통계 정보를 조회합니다."""
+    def get_table_stats(self, table_name: str, schema: str = None) -> dict | None:
+        """
+        테이블 통계 정보를 조회합니다.
+
+        Parameters
+        ----------
+        table_name : str
+            조회할 테이블명 (대소문자 무관)
+        schema : str, optional
+            테이블 소유자(스키마). None 이면 ALL_TABLES 에서 검색.
+
+        Returns
+        -------
+        dict | None
+            {
+              "table_name": str,
+              "num_rows": int | None,
+              "blocks": int | None,
+              "last_analyzed": datetime | None,
+              "stale_stats": bool,          # STALE_STATS = 'YES'
+              "days_since_analyzed": int | None
+            }
+            통계 행이 없으면 None 반환.
+        """
         self._ensure_connected()
         cursor = self._connection.cursor()
-        params = {'tname': table_name.upper()}
-        owner_filter = "AND OWNER = :owner" if owner else ""
-        if owner:
-            params['owner'] = owner.upper()
+
+        params: dict = {'tname': table_name.upper()}
+        owner_filter = "AND OWNER = :schema" if schema else ""
+        if schema:
+            params['schema'] = schema.upper()
 
         try:
             cursor.execute(f"""
                 SELECT
+                    TABLE_NAME,
                     NUM_ROWS,
                     BLOCKS,
-                    AVG_ROW_LEN,
-                    LAST_ANALYZED
+                    LAST_ANALYZED,
+                    STALE_STATS
                 FROM ALL_TABLES
                 WHERE TABLE_NAME = :tname
                   {owner_filter}
-                  AND ROWNUM = 1
+                FETCH FIRST 1 ROWS ONLY
             """, **params)
             row = cursor.fetchone()
-            if row:
-                return {
-                    'num_rows': row[0],
-                    'blocks': row[1],
-                    'avg_row_len': row[2],
-                    'last_analyzed': str(row[3]) if row[3] else '미수집',
-                }
-            return {}
         except oracledb.Error:
-            return {}
+            return None
         finally:
             cursor.close()
+
+        if row is None:
+            return None
+
+        tbl_name, num_rows, blocks, last_analyzed, stale_stats_raw = row
+        stale_stats: bool = (stale_stats_raw == 'YES')
+
+        days_since: int | None = None
+        if last_analyzed is not None:
+            if isinstance(last_analyzed, datetime):
+                la = last_analyzed
+            else:
+                la = datetime(
+                    last_analyzed.year, last_analyzed.month, last_analyzed.day
+                )
+            days_since = (datetime.now() - la.replace(tzinfo=None)).days
+
+        return {
+            "table_name": tbl_name,
+            "num_rows": num_rows,
+            "blocks": blocks,
+            "last_analyzed": last_analyzed,
+            "stale_stats": stale_stats,
+            "days_since_analyzed": days_since,
+        }
 
     # ------------------------------------------------------------------ #
     #  STEP 5 – Index Advisor 지원 메서드                                   #
@@ -1018,6 +1060,69 @@ class OracleClient:
 
         return list(index_map.values())
 
+    def get_column_stats(self, table_name: str, schema: str = None) -> list[dict]:
+        """
+        테이블의 컬럼별 통계 정보를 조회합니다.
+
+        Parameters
+        ----------
+        table_name : str
+            조회할 테이블명 (대소문자 무관)
+        schema : str, optional
+            테이블 소유자(스키마). None 이면 ALL_TAB_COLUMNS 에서 검색.
+
+        Returns
+        -------
+        list[dict]
+            [
+              {
+                "column_name": str,
+                "num_distinct": int | None,
+                "num_nulls": int | None,
+                "density": float | None,
+                "last_analyzed": datetime | None
+              }, ...
+            ]
+            컬럼 순서(COLUMN_ID) 기준 정렬.
+        """
+        self._ensure_connected()
+        cursor = self._connection.cursor()
+
+        params: dict = {'tname': table_name.upper()}
+        owner_filter = "AND OWNER = :schema" if schema else ""
+        if schema:
+            params['schema'] = schema.upper()
+
+        try:
+            cursor.execute(f"""
+                SELECT
+                    COLUMN_NAME,
+                    NUM_DISTINCT,
+                    NUM_NULLS,
+                    DENSITY,
+                    LAST_ANALYZED
+                FROM ALL_TAB_COLUMNS
+                WHERE TABLE_NAME = :tname
+                  {owner_filter}
+                ORDER BY COLUMN_ID
+            """, **params)
+            rows = cursor.fetchall()
+        except oracledb.Error:
+            return []
+        finally:
+            cursor.close()
+
+        result: list[dict] = []
+        for col_name, num_distinct, num_nulls, density, last_analyzed in rows:
+            result.append({
+                "column_name": col_name,
+                "num_distinct": num_distinct,
+                "num_nulls": num_nulls,
+                "density": float(density) if density is not None else None,
+                "last_analyzed": last_analyzed,
+            })
+        return result
+
     def get_tables_from_sql(self, sql: str) -> list[str]:
         """
         SQL 텍스트에서 FROM / JOIN 절에 사용된 테이블명을 추출합니다.
@@ -1064,3 +1169,63 @@ class OracleClient:
                 seen.add(t)
                 result.append(t)
         return result
+
+    # ------------------------------------------------------------------ #
+    #  STEP 6 – 통계 수집 권한 확인 / DBMS_STATS 실행                        #
+    # ------------------------------------------------------------------ #
+
+    def check_stats_privilege(self) -> bool:
+        """
+        현재 세션이 DBMS_STATS를 직접 실행할 수 있는 권한을 보유하는지 확인합니다.
+
+        SESSION_PRIVS에서 ANALYZE ANY 또는 DBA 권한이 있으면 True를 반환합니다.
+        조회 실패(권한 뷰 접근 불가 등) 시 안전하게 False를 반환합니다.
+        """
+        self._ensure_connected()
+        cursor = self._connection.cursor()
+        try:
+            cursor.execute("""
+                SELECT COUNT(*)
+                FROM SESSION_PRIVS
+                WHERE PRIVILEGE IN ('ANALYZE ANY', 'DBA')
+            """)
+            row = cursor.fetchone()
+            return (row[0] or 0) > 0
+        except Exception:
+            return False
+        finally:
+            cursor.close()
+
+    def execute_stats_collection(self, table_names: list) -> tuple:
+        """
+        테이블 목록에 대해 DBMS_STATS.GATHER_TABLE_STATS를 순차적으로 실행합니다.
+
+        OWNNAME에 USER Oracle 함수를 사용하여 현재 세션의 스키마 기준으로 수집합니다.
+        CASCADE => TRUE 로 인덱스 통계도 함께 수집합니다.
+
+        Returns
+        -------
+        (success: bool, message: str)
+        """
+        self._ensure_connected()
+        if not table_names:
+            return False, '수집 대상 테이블이 없습니다.'
+
+        cursor = self._connection.cursor()
+        try:
+            for table_name in table_names:
+                cursor.execute(
+                    f"BEGIN DBMS_STATS.GATHER_TABLE_STATS("
+                    f"OWNNAME => USER, "
+                    f"TABNAME => '{table_name.upper()}', "
+                    f"CASCADE => TRUE); END;"
+                )
+            self._connection.commit()
+            return True, f'{len(table_names)}개 테이블 통계 수집 완료'
+        except oracledb.Error as e:
+            error_obj, = e.args
+            return False, f'통계 수집 실패 (ORA-{error_obj.code:05d}): {error_obj.message}'
+        except Exception as e:
+            return False, str(e)
+        finally:
+            cursor.close()
