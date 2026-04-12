@@ -910,54 +910,6 @@ class OracleClient:
         finally:
             cursor.close()
 
-    # ------------------------------------------------------------------
-    # 인덱스 정보 조회
-    # ------------------------------------------------------------------
-
-    def get_table_indexes(self, table_name: str, owner: str = None) -> list[dict]:
-        """테이블의 인덱스 목록을 조회합니다."""
-        self._ensure_connected()
-        cursor = self._connection.cursor()
-
-        params = {'tname': table_name.upper()}
-        owner_filter = "AND AI.TABLE_OWNER = :owner" if owner else ""
-        if owner:
-            params['owner'] = owner.upper()
-        try:
-            cursor.execute(f"""
-                SELECT
-                    AI.INDEX_NAME,
-                    AI.INDEX_TYPE,
-                    AI.UNIQUENESS,
-                    AI.STATUS,
-                    LISTAGG(AIC.COLUMN_NAME, ', ')
-                        WITHIN GROUP (ORDER BY AIC.COLUMN_POSITION) AS COLUMNS
-                FROM ALL_INDEXES AI
-                JOIN ALL_IND_COLUMNS AIC
-                  ON AI.INDEX_NAME = AIC.INDEX_NAME
-                 AND AI.TABLE_OWNER = AIC.TABLE_OWNER
-                WHERE AI.TABLE_NAME = :tname
-                  {owner_filter}
-                GROUP BY AI.INDEX_NAME, AI.INDEX_TYPE, AI.UNIQUENESS, AI.STATUS
-                ORDER BY AI.INDEX_NAME
-            """, **params)
-
-            indexes = []
-            for row in cursor.fetchall():
-                indexes.append({
-                    'index_name': row[0],
-                    'index_type': row[1],
-                    'uniqueness': row[2],
-                    'status': row[3],
-                    'columns': row[4],
-                })
-            return indexes
-
-        except oracledb.Error:
-            return []
-        finally:
-            cursor.close()
-
     def get_table_stats(self, table_name: str, owner: str = None) -> dict:
         """테이블 통계 정보를 조회합니다."""
         self._ensure_connected()
@@ -992,3 +944,123 @@ class OracleClient:
             return {}
         finally:
             cursor.close()
+
+    # ------------------------------------------------------------------ #
+    #  STEP 5 – Index Advisor 지원 메서드                                   #
+    # ------------------------------------------------------------------ #
+
+    def get_table_indexes(self, table_name: str, schema: str = None) -> list[dict]:
+        """
+        테이블의 인덱스 목록과 컬럼 정보를 조회합니다.
+
+        Parameters
+        ----------
+        table_name : str
+            조회할 테이블명 (대소문자 무관)
+        schema : str, optional
+            테이블 소유자(스키마). None 이면 ALL_INDEXES 에서 검색.
+
+        Returns
+        -------
+        list[dict]
+            [
+              {
+                "index_name": "PK_ORDERS",
+                "uniqueness": "UNIQUE",   # "UNIQUE" | "NONUNIQUE"
+                "columns": ["ORDER_ID"],  # 컬럼 포지션 순서
+                "status": "VALID"         # "VALID" | "UNUSABLE" | ...
+              }, ...
+            ]
+        """
+        self._ensure_connected()
+        cursor = self._connection.cursor()
+
+        params: dict = {'tname': table_name.upper()}
+        owner_filter = "AND ai.OWNER = :schema" if schema else ""
+        if schema:
+            params['schema'] = schema.upper()
+
+        try:
+            cursor.execute(f"""
+                SELECT
+                    ai.INDEX_NAME,
+                    ai.UNIQUENESS,
+                    aic.COLUMN_NAME,
+                    aic.COLUMN_POSITION,
+                    ai.STATUS
+                FROM ALL_INDEXES ai
+                JOIN ALL_IND_COLUMNS aic
+                  ON aic.INDEX_NAME  = ai.INDEX_NAME
+                 AND aic.TABLE_OWNER = ai.OWNER
+                 AND aic.TABLE_NAME  = ai.TABLE_NAME
+                WHERE ai.TABLE_NAME = :tname
+                  {owner_filter}
+                ORDER BY ai.INDEX_NAME, aic.COLUMN_POSITION
+            """, **params)
+
+            rows = cursor.fetchall()
+        except oracledb.Error:
+            return []
+        finally:
+            cursor.close()
+
+        # 인덱스별로 컬럼 목록을 집계
+        index_map: dict[str, dict] = {}
+        for index_name, uniqueness, col_name, _col_pos, status in rows:
+            if index_name not in index_map:
+                index_map[index_name] = {
+                    "index_name": index_name,
+                    "uniqueness": uniqueness,
+                    "columns": [],
+                    "status": status,
+                }
+            index_map[index_name]["columns"].append(col_name)
+
+        return list(index_map.values())
+
+    def get_tables_from_sql(self, sql: str) -> list[str]:
+        """
+        SQL 텍스트에서 FROM / JOIN 절에 사용된 테이블명을 추출합니다.
+
+        sqlglot AST 파싱을 사용하며, 파싱 실패 시 빈 리스트를 반환합니다.
+
+        Parameters
+        ----------
+        sql : str
+            분석할 SQL 텍스트
+
+        Returns
+        -------
+        list[str]
+            대문자 테이블명 목록 (중복 제거, 서브쿼리 인라인 뷰 별칭 제외)
+        """
+        try:
+            import sqlglot
+            from sqlglot import exp
+        except ImportError:
+            return []
+
+        tables: list[str] = []
+        try:
+            statements = sqlglot.parse(sql, error_level=sqlglot.ErrorLevel.IGNORE)
+            for statement in statements:
+                if statement is None:
+                    continue
+                for table_node in statement.find_all(exp.Table):
+                    # 서브쿼리(인라인 뷰)가 아닌 실제 테이블만 수집
+                    if isinstance(table_node.parent, exp.Subquery):
+                        continue
+                    name = table_node.name
+                    if name:
+                        tables.append(name.upper())
+        except Exception:
+            return []
+
+        # 순서 유지하면서 중복 제거
+        seen: set[str] = set()
+        result: list[str] = []
+        for t in tables:
+            if t not in seen:
+                seen.add(t)
+                result.append(t)
+        return result
