@@ -96,6 +96,19 @@ SQL 입력창에 SQL 작성
 
 ---
 
+## 로컬 AI (Ollama) 환경
+
+| 항목 | 값 |
+|------|-----|
+| 다운로드 | https://ollama.com/download |
+| 모델 설치 | `ollama pull qwen2.5-coder:7b` |
+| AI 설정 URL | `http://localhost:11434/v1` |
+| AI 설정 Model | `qwen2.5-coder:7b` |
+
+> 앱 실행 후 툴바 **[AI 설정]** 버튼 → 위 값 입력
+
+---
+
 ## 주의사항
 
 - Oracle **Thick Client**가 설치된 환경에서만 최적 동작 (설치 없으면 Thin 모드로 자동 전환)

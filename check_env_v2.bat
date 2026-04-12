@@ -20,6 +20,7 @@ echo [2] Required packages
 py -3.13-32 -c "import PyQt5; print('    OK  PyQt5', PyQt5.QtCore.PYQT_VERSION_STR)" 2>nul || echo     FAIL  PyQt5 not installed
 py -3.13-32 -c "import oracledb; print('    OK  oracledb', oracledb.__version__)" 2>nul || echo     FAIL  oracledb not installed
 py -3.13-32 -c "import sqlglot; print('    OK  sqlglot', sqlglot.__version__)" 2>nul || echo     FAIL  sqlglot not installed
+py -3.13-32 -c "import openai; print('    OK  openai', openai.__version__)" 2>nul || echo     FAIL  openai not installed
 py -3.13-32 -c "import pytest; print('    OK  pytest', pytest.__version__)" 2>nul || echo     WARN  pytest not installed
 echo.
 

@@ -4,8 +4,10 @@ RegexAnalyzer 대비 개선 사항:
   1. 함수 감지 범위 확대
      - exp.Upper / exp.Lower / exp.Trim / exp.Substring 전용 노드 추가
      - exp.Anonymous 는 이름 기반으로 _INDEX_BREAKING_FUNCS 와 대조
-  2. 묵시적 형변환 감지를 AST 레벨에서 수행
-     - EQ(Column, Literal[string]) 패턴에서 Literal 이 순수 숫자인지 확인
+  2. 묵시적 형변환 감지를 AST 레벨에서 수행 (3패턴)
+     - P1: EQ(Column, Literal[string/숫자]) — 숫자 컬럼에 문자열 리터럴
+     - P2: 형변환 함수(TO_NUMBER 등)가 WHERE 절 컬럼에 직접 적용
+     - P3: Column || '' 연산으로 형변환 유도
      - 주석/문자열 리터럴 내부 오탐 없음
   3. 주석 또는 문자열 리터럴 내부의 키워드를 오탐하지 않음
 
@@ -17,10 +19,17 @@ import sqlglot
 from sqlglot import exp, ErrorLevel
 from .base import SqlAnalyzer, SqlIssue
 
+# 형변환 유발 함수 — _check_implicit_conversion(P2)에서 HIGH로 처리
+# _check_function_on_where_col 과 중복 방지를 위해 별도 분리
+_TYPE_CONVERSION_FUNCS: frozenset[str] = frozenset({
+    'TO_NUMBER', 'TO_CHAR', 'TO_DATE', 'TO_TIMESTAMP',
+})
+
 # WHERE 절 컬럼에 적용되면 인덱스를 무효화하는 함수 이름 (대문자)
+# 형변환 함수(_TYPE_CONVERSION_FUNCS)는 제외 — 중복 감지 방지
 _INDEX_BREAKING_FUNCS: frozenset[str] = frozenset({
-    'TO_CHAR', 'TO_DATE', 'TRUNC', 'SUBSTR', 'UPPER', 'LOWER',
-    'NVL', 'TO_NUMBER', 'TRIM', 'LTRIM', 'RTRIM', 'NVL2',
+    'TRUNC', 'SUBSTR', 'UPPER', 'LOWER',
+    'NVL', 'TRIM', 'LTRIM', 'RTRIM', 'NVL2',
     'DECODE', 'REPLACE', 'INSTR',
 })
 
@@ -119,28 +128,40 @@ class AstAnalyzer(SqlAnalyzer):
 
     def _check_implicit_conversion(self, tree) -> list[SqlIssue]:
         """
-        AST 기반 묵시적 형변환 감지.
-        EQ(Column, Literal) 패턴에서 Literal 이 순수 숫자 문자열이면 경고.
-        정규식 대비: 주석/문자열 리터럴 내부 오탐 없음.
+        AST 기반 묵시적 형변환 감지 — 3패턴.
+
+        P1: Column = '숫자문자열'
+            숫자형 컬럼에 문자열 리터럴로 비교 → Oracle 내부 TO_NUMBER 변환 유발
+        P2: TypeConvFunc(Column) in WHERE
+            TO_NUMBER / TO_CHAR / TO_DATE / TO_TIMESTAMP 가 컬럼에 직접 적용
+            (_check_function_on_where_col 과 감지 대상 분리로 중복 없음)
+        P3: Column || '' 비교
+            숫자/날짜 컬럼을 || '' 연결로 강제 형변환 후 문자열과 비교
         """
         where = tree.find(exp.Where)
         if not where:
             return []
 
+        issues: list[SqlIssue] = []
+
+        # ── P1: Column = '숫자문자열' ──────────────────────────────────────
+        p1_found = False
         for eq_node in where.find_all(exp.EQ):
-            pairs = [(eq_node.left, eq_node.right), (eq_node.right, eq_node.left)]
-            for col_side, lit_side in pairs:
+            if p1_found:
+                break
+            for col_side, lit_side in [(eq_node.left, eq_node.right),
+                                       (eq_node.right, eq_node.left)]:
                 if (isinstance(col_side, exp.Column)
                         and isinstance(lit_side, exp.Literal)
                         and lit_side.is_string
                         and lit_side.this.isdigit()):
-                    return [SqlIssue(
-                        severity='MEDIUM',
+                    issues.append(SqlIssue(
+                        severity='HIGH',
                         category='묵시적 형변환',
-                        title='묵시적 형변환 의심',
+                        title='숫자 컬럼에 문자열 리터럴 비교',
                         description=(
                             "숫자형 컬럼에 문자열('숫자')로 비교하면 묵시적 형변환이 발생합니다.\n"
-                            "Oracle은 자동으로 TO_NUMBER 변환을 수행하지만\n"
+                            "Oracle은 내부적으로 TO_NUMBER 변환을 수행하며\n"
                             "이 과정에서 인덱스가 무효화될 수 있습니다."
                         ),
                         suggestion=(
@@ -148,8 +169,80 @@ class AstAnalyzer(SqlAnalyzer):
                             "숫자 컬럼: WHERE NUM_COL = 12345  (따옴표 없이)\n"
                             "문자 컬럼: WHERE CHR_COL = '12345'  (따옴표 있게)"
                         ),
-                    )]
-        return []
+                    ))
+                    p1_found = True
+                    break
+
+        # ── P2: 형변환 함수(TO_NUMBER 등)가 컬럼에 직접 적용 ────────────────
+        # sqlglot 은 TO_NUMBER 등을 exp.Anonymous 또는 전용 Func 서브클래스로 파싱.
+        # exp.Anonymous → node.name 으로 이름 추출
+        # 전용 Func 서브클래스 → node.sql() 앞부분으로 이름 추출 (폴백)
+        found_conv: set[str] = set()
+        for node in where.walk():
+            fname = None
+            if isinstance(node, (exp.Cast, exp.TryCast)):
+                fname = 'CAST'
+            elif isinstance(node, exp.Anonymous):
+                candidate = (node.name or '').upper()
+                if candidate in _TYPE_CONVERSION_FUNCS:
+                    fname = candidate
+            elif isinstance(node, exp.Func):
+                try:
+                    func_sql = node.sql(dialect='oracle').split('(')[0].strip().upper()
+                    if func_sql in _TYPE_CONVERSION_FUNCS:
+                        fname = func_sql
+                except Exception:
+                    pass
+            if fname and node.find(exp.Column):
+                found_conv.add(fname)
+
+        if found_conv:
+            funcs_str = ', '.join(sorted(found_conv))
+            issues.append(SqlIssue(
+                severity='HIGH',
+                category='묵시적 형변환',
+                title=f'WHERE 절 형변환 함수 적용: {funcs_str}',
+                description=(
+                    f"WHERE 절에서 컬럼에 형변환 함수({funcs_str})가 직접 적용되면\n"
+                    "인덱스를 사용할 수 없고 묵시적 형변환이 발생합니다.\n"
+                    "Full Table Scan의 주요 원인입니다."
+                ),
+                suggestion=(
+                    "함수를 컬럼 대신 비교값(상수)에 적용하세요.\n\n"
+                    "예시 (날짜 조건):\n"
+                    "  나쁜 예: WHERE TO_CHAR(REG_DATE, 'YYYYMMDD') = '20240101'\n"
+                    "  좋은 예: WHERE REG_DATE >= TO_DATE('20240101', 'YYYYMMDD')\n"
+                    "           AND REG_DATE <  TO_DATE('20240102', 'YYYYMMDD')"
+                ),
+            ))
+
+        # ── P3: Column || '' (문자열 연결로 형변환 유도) ─────────────────────
+        for dpipe in where.find_all(exp.DPipe):
+            left, right = dpipe.left, dpipe.right
+            has_col = isinstance(left, exp.Column) or isinstance(right, exp.Column)
+            has_empty = (
+                (isinstance(right, exp.Literal) and right.is_string and right.this == '')
+                or (isinstance(left, exp.Literal) and left.is_string and left.this == '')
+            )
+            if has_col and has_empty:
+                issues.append(SqlIssue(
+                    severity='HIGH',
+                    category='묵시적 형변환',
+                    title="문자열 연결 연산자(||)로 형변환 유도",
+                    description=(
+                        "SALARY || '' 패턴은 숫자/날짜 컬럼을 문자열로 강제 변환하여\n"
+                        "인덱스를 무력화합니다.\n"
+                        "비교 대상과의 타입 불일치로 추가 묵시적 형변환도 발생합니다."
+                    ),
+                    suggestion=(
+                        "컬럼에 직접 비교하는 방식으로 변경하세요.\n"
+                        "  나쁜 예: WHERE SALARY || '' = '5000'\n"
+                        "  좋은 예: WHERE SALARY = 5000"
+                    ),
+                ))
+                break
+
+        return issues
 
     def _check_not_in_null(self, tree) -> list[SqlIssue]:
         """NOT IN (SELECT ...) — 서브쿼리 결과에 NULL 포함 시 전체 0건 위험"""
