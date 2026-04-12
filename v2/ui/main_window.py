@@ -66,6 +66,8 @@ class MainWindow(QMainWindow):
         self._current_sql: str = ''
         self._current_issues: list = []
 
+        self._has_stats_privilege: bool = False  # DB 연결 시점에 1회 조회
+
         self._ai_provider = self._load_ai_provider()
         self._ai_tuner = AiSqlTuner(self._ai_provider)
 
@@ -218,6 +220,11 @@ class MainWindow(QMainWindow):
             self._update_connection_ui()
             self._update_user_schema_label()
             self._update_db_version()
+            # 통계 수집 권한 1회 조회 (분석 시 재사용)
+            try:
+                self._has_stats_privilege = self._client.check_stats_privilege()
+            except Exception:
+                self._has_stats_privilege = False
             mode = self._client.connection_mode
             msg = f'연결 성공: {self._client.current_connection_label} [{mode} 모드]'
             if mode == 'Thin':
@@ -229,6 +236,7 @@ class MainWindow(QMainWindow):
 
     def _on_disconnect(self):
         self._client.disconnect()
+        self._has_stats_privilege = False
         self._update_connection_ui()
         self._user_schema_label.clear()
         self._db_version_label.clear()
@@ -352,6 +360,9 @@ class MainWindow(QMainWindow):
         resource,           # ResourceAnalysis
         index_infos: list,
         index_advices: list,
+        stats_infos: list,
+        stats_advices: list,
+        has_stats_privilege: bool,
     ):
         self._btn_analyze.setEnabled(True)
 
@@ -388,6 +399,7 @@ class MainWindow(QMainWindow):
         self._current_issues = all_issues
 
         self._stats_tab.set_sql(self._current_sql)
+        self._stats_tab.populate_stats(stats_infos, stats_advices, has_stats_privilege)
         self._result_tab.set_sql(self._current_sql)
         self._rewrite_tab.refresh(self._current_sql, all_issues)
 
