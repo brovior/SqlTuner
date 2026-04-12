@@ -1,0 +1,15 @@
+version: '3'
+services:
+  oracle-xe:
+    image: gvenzl/oracle-free:slim
+    container_name: oracle-xe
+    ports:
+      - "1521:1521"
+    environment:
+      - ORACLE_PASSWORD=your_password
+    volumes:
+      - oracle-data:/opt/oracle/oradata
+    restart: unless-stopped
+
+volumes:
+  oracle-data:
