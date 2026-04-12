@@ -43,6 +43,7 @@ from v2.ui.widgets.rewrite_tab import RewriteTab
 from v2.ui.widgets.result_tab import ResultTab
 from v2.ui.widgets.cursor_plan_tab import CursorPlanTab
 from v2.ui.widgets.wait_event_tab import WaitEventTab
+from v2.ui.widgets.index_tab import IndexTab
 from v2.ui.dialogs.connection_dialog import ConnectionDialog
 from v2.ui.dialogs.ai_settings_dialog import AISettingsDialog
 from v2.ui.dialogs.bind_vars_dialog import extract_bind_vars, BindVarsDialog
@@ -134,11 +135,13 @@ class MainWindow(QMainWindow):
         self._rewrite_tab.update_ai_provider_label(self._ai_provider.label)
 
         self._wait_event_tab = WaitEventTab()
+        self._index_tab = IndexTab()
 
         self._tabs.addTab(self._plan_tree_tab,   'Plan Tree')
         self._tabs.addTab(self._xplan_tab,       'DBMS_XPLAN')
         self._tabs.addTab(self._cursor_plan_tab, '실제 플랜')
         self._tabs.addTab(self._issues_tab,      '튜닝 제안')
+        self._tabs.addTab(self._index_tab,       '인덱스 분석')
         self._tabs.addTab(self._wait_event_tab,  '리소스 분석')
         self._tabs.addTab(self._stats_tab,       'V$SQL 통계')
         self._tabs.addTab(self._result_tab,      '실행 결과')
@@ -333,6 +336,7 @@ class MainWindow(QMainWindow):
         self._xplan_tab.clear()
         self._cursor_plan_tab.clear()
         self._issues_tab.clear()
+        self._index_tab.clear()
         self._wait_event_tab.clear()
         self._stats_tab.clear()
         self._result_tab.clear()
@@ -346,12 +350,17 @@ class MainWindow(QMainWindow):
         plan_issues: list,
         engine_used: str,
         resource,           # ResourceAnalysis
+        index_infos: list,
+        index_advices: list,
     ):
         self._btn_analyze.setEnabled(True)
 
         self._plan_tree_tab.populate(plan_rows)
         self._xplan_tab.populate(xplan_text)
         self._cursor_plan_tab.set_estimated(xplan_text)
+
+        # 인덱스 분석 탭 채우기
+        self._index_tab.populate(index_infos, index_advices)
 
         # 리소스 분석 탭 채우기
         self._wait_event_tab.populate(resource)
