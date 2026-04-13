@@ -1,12 +1,13 @@
 """
 튜닝 이슈 탭 위젯
-이슈 목록 테이블 + 상세 설명 패널
+이슈 목록 테이블 + 상세 설명 패널 + 힌트 자동 추천 섹션
 """
 from __future__ import annotations
 
 from PyQt5.QtWidgets import (
-    QWidget, QVBoxLayout, QTableWidget, QTableWidgetItem,
-    QTextEdit, QLabel, QHeaderView, QAbstractItemView,
+    QWidget, QVBoxLayout, QHBoxLayout, QTableWidget, QTableWidgetItem,
+    QTextEdit, QLabel, QHeaderView, QAbstractItemView, QGroupBox,
+    QPushButton, QApplication,
 )
 from PyQt5.QtGui import QFont, QColor
 
@@ -24,6 +25,7 @@ class IssuesTab(QWidget):
         super().__init__(parent)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
+        layout.setSpacing(6)
 
         self._table = QTableWidget(0, 4)
         self._table.setHorizontalHeaderLabels(['심각도', '분류', '제목', '설명'])
@@ -36,12 +38,13 @@ class IssuesTab(QWidget):
 
         self._detail = QTextEdit()
         self._detail.setReadOnly(True)
-        self._detail.setMaximumHeight(180)
+        self._detail.setMaximumHeight(160)
         self._detail.setFont(QFont('Consolas', 10))
 
         layout.addWidget(self._table, 2)
         layout.addWidget(QLabel('상세 설명 / 개선 제안:'))
         layout.addWidget(self._detail, 1)
+        layout.addWidget(self._build_hint_group())
 
         self._issues: list = []
 
@@ -66,10 +69,51 @@ class IssuesTab(QWidget):
         if issues:
             self._table.selectRow(0)
 
+    def _build_hint_group(self) -> QGroupBox:
+        group = QGroupBox('힌트 자동 추천')
+        vbox = QVBoxLayout(group)
+        vbox.setSpacing(4)
+
+        self._hint_text = QTextEdit()
+        self._hint_text.setReadOnly(True)
+        self._hint_text.setFont(QFont('Consolas', 10))
+        self._hint_text.setMaximumHeight(110)
+        self._hint_text.setPlaceholderText(
+            '분석 실행 후 실행 계획 기반 힌트 추천이 표시됩니다.\n'
+            '(LEADING / USE_NL / USE_HASH / INDEX)'
+        )
+        vbox.addWidget(self._hint_text)
+
+        btn_row = QHBoxLayout()
+        btn_row.addStretch()
+        btn_copy = QPushButton('클립보드에 복사')
+        btn_copy.setFixedWidth(120)
+        btn_copy.clicked.connect(
+            lambda: QApplication.clipboard().setText(self._hint_text.toPlainText())
+        )
+        btn_row.addWidget(btn_copy)
+        vbox.addLayout(btn_row)
+
+        return group
+
+    def populate_hints(self, hints: list):
+        """HintSuggestion 목록을 힌트 추천 섹션에 표시합니다."""
+        if not hints:
+            self._hint_text.setPlainText('힌트 추천 사항이 없습니다.')
+            return
+
+        lines: list[str] = []
+        for h in hints:
+            lines.append(f'[추천] {h.full_hint}')
+            lines.append(f'       이유: {h.reason}')
+            lines.append('')
+        self._hint_text.setPlainText('\n'.join(lines).rstrip())
+
     def clear(self):
         self._issues = []
         self._table.setRowCount(0)
         self._detail.clear()
+        self._hint_text.clear()
 
     def _on_selection_changed(self):
         row_idx = self._table.currentRow()

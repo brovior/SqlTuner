@@ -152,3 +152,54 @@ def test_severity_order(ana):
     order = {'HIGH': 0, 'MEDIUM': 1, 'LOW': 2, 'INFO': 3}
     ranks = [order.get(i.severity, 99) for i in issues]
     assert ranks == sorted(ranks)
+
+
+# ── ROWNUM 페이징 안티패턴 ───────────────────────────────────────
+
+def test_rownum_nested_paging_detected(ana):
+    """ROWNUM 이중 중첩 페이징 패턴 감지"""
+    sql = (
+        "SELECT * FROM ("
+        "  SELECT A.*, ROWNUM RN FROM ("
+        "    SELECT * FROM ORDERS ORDER BY ORDER_DATE"
+        "  ) A WHERE ROWNUM <= 100"
+        ") WHERE RN >= 1"
+    )
+    issues = ana.analyze(sql)
+    assert any(i.category == 'PAGING' and '구식' in i.title for i in issues), issues
+
+
+def test_rownum_nested_two_occurrences_detected(ana):
+    """ROWNUM 2회 등장 → 이중 중첩 페이징"""
+    sql = "SELECT * FROM (SELECT *, ROWNUM RN FROM T WHERE ROWNUM <= 20) WHERE RN > 10"
+    issues = ana.analyze(sql)
+    assert any('구식' in i.title for i in issues), issues
+
+
+def test_rownum_single_no_order_detected(ana):
+    """ORDER BY 없는 ROWNUM <= N 단독 사용 감지"""
+    sql = "SELECT * FROM ORDERS WHERE ROWNUM <= 10"
+    issues = ana.analyze(sql)
+    assert any(i.category == 'PAGING' and 'ORDER BY' in i.title for i in issues), issues
+
+
+def test_rownum_single_with_order_ok(ana):
+    """ROWNUM <= N + ORDER BY 포함 → 경고 없음"""
+    sql = "SELECT * FROM (SELECT * FROM ORDERS ORDER BY ORDER_DATE) WHERE ROWNUM <= 10"
+    issues = ana.analyze(sql)
+    assert not any('ORDER BY 없는' in i.title for i in issues)
+
+
+def test_rownum_no_paging_no_issue(ana):
+    """ROWNUM 없는 일반 쿼리 → PAGING 이슈 없음"""
+    sql = "SELECT * FROM ORDERS WHERE ORDER_DATE > SYSDATE - 30"
+    issues = ana.analyze(sql)
+    assert not any(i.category == 'PAGING' for i in issues)
+
+
+def test_rownum_nested_not_flagged_as_no_order(ana):
+    """이중 중첩 패턴 → '구식 ROWNUM' 이슈만 발생, 'ORDER BY 없는' 이슈 없음"""
+    sql = "SELECT * FROM (SELECT *, ROWNUM RN FROM T WHERE ROWNUM <= 20) WHERE RN > 10"
+    issues = ana.analyze(sql)
+    titles = [i.title for i in issues]
+    assert not any('ORDER BY 없는' in t for t in titles)

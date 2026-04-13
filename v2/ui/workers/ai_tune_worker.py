@@ -2,7 +2,8 @@
 AI 튜닝 백그라운드 워커
 
 AiTuneWorker.run():
-  AiSqlTuner.tune(sql, issues) → tuned_sql 문자열
+  AiSqlTuner.tune(sql, issues, db_version,
+                  index_infos, stats_infos, plan_rows) → tuned_sql 문자열
   finished 시그널로 결과 전달
 """
 from __future__ import annotations
@@ -15,16 +16,36 @@ class AiTuneWorker(QThread):
     finished = pyqtSignal(str)
     error = pyqtSignal(str)
 
-    def __init__(self, tuner: AiSqlTuner, sql: str, issues: list, db_version: str = ''):
+    def __init__(
+        self,
+        tuner: AiSqlTuner,
+        sql: str,
+        issues: list,
+        db_version: str = '',
+        *,
+        index_infos: list | None = None,
+        stats_infos: list | None = None,
+        plan_rows: list | None = None,
+    ):
         super().__init__()
         self._tuner = tuner
         self._sql = sql
         self._issues = issues
         self._db_version = db_version
+        self._index_infos = index_infos
+        self._stats_infos = stats_infos
+        self._plan_rows = plan_rows
 
     def run(self):
         try:
-            result = self._tuner.tune(self._sql, self._issues, self._db_version)
+            result = self._tuner.tune(
+                self._sql,
+                self._issues,
+                self._db_version,
+                index_infos=self._index_infos,
+                stats_infos=self._stats_infos,
+                plan_rows=self._plan_rows,
+            )
             self.finished.emit(result)
         except Exception as e:
             self.error.emit(str(e))

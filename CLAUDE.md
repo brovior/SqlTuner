@@ -142,18 +142,20 @@ SQL 입력창에 SQL 작성
 > 개발 환경 설정 → [docs/SETUP.md](docs/SETUP.md)
 
 
-## 마지막 작업 현황 (2026-04-13)
-- DBA 로드맵 6단계 진행 중
-- 완료: STEP 6-1 (oracle_client 통계 조회 메서드)
-- 완료: STEP 6-2 (StatsAdvisor 로직 구현)
-- 완료: STEP 6-3 (UI 연동)
-  - oracle_client.py: check_stats_privilege(), execute_stats_collection() 추가
-  - stats_advisor.py: _generate_sql OWNNAME => USER 수정
-  - plan_worker.py: StatsAdvisor 실행 + 시그널 확장 (stats_infos, stats_advices, has_stats_privilege)
-  - stats_tab.py: 테이블 통계 현황 섹션 추가 (색상 코딩, 스크립트, 실행/복사 버튼)
-  - main_window.py: 연결 시 check_stats_privilege() 1회 호출, _on_analysis_done 연결
-- 완료: STEP 6-4 (단위 테스트) — 159 passed
-  - test_oracle_client_stats.py: check_stats_privilege (5개), execute_stats_collection (6개) 추가
-  - test_stats_advisor.py: TestSuggestedSqlFormat (4개, OWNNAME => USER 검증) 추가
-- 6단계 전체 완료
-- 다음 작업: 7단계 또는 신규 기능 논의
+## 마지막 작업 현황 (2026-04-14)
+- DBA 로드맵 7단계 완료
+- 완료: STEP 7-1/7-2 (ROWNUM 페이징 안티패턴 감지)
+  - ast_analyzer.py: _check_rownum_nested_paging, _check_rownum_no_order 추가
+  - regex_analyzer.py: _check_rownum_nested_paging, _check_rownum_no_order 추가
+- 완료: STEP 7-3 (스칼라 서브쿼리 → LEFT JOIN 변환)
+  - ast_rewriter.py: _scalar_subquery_to_left_join 추가
+- 완료: STEP 7-4 (WHERE IN 서브쿼리 → JOIN 변환)
+  - ast_rewriter.py: _in_subquery_to_join 추가
+- 완료: STEP 7-5 (힌트 자동 추천 — LEADING/USE_NL/USE_HASH/INDEX)
+  - hint_advisor.py: 신규 생성 (HintSuggestion, HintAdvisor)
+  - issues_tab.py: populate_hints(), _build_hint_group() 추가
+  - main_window.py: HintAdvisor 연동
+- 완료: STEP 7-6 (인라인 뷰 힌트 — PUSH_PRED/NO_MERGE)
+  - hint_advisor.py: _suggest_inline_view, _has_filter_ancestor, _build_full_hint 추가
+- 7단계 전체 완료 — 225 passed
+- 다음 작업: 8단계 또는 신규 기능 논의

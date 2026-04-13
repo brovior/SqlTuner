@@ -5,13 +5,15 @@ SqlAnalyzer 인터페이스를 구현합니다.
 기존 tuning_rules.SqlTextAnalyzer 를 SqlAnalyzer ABC 상속으로 재작성.
 sqlglot 파싱이 실패한 경우 AstAnalyzer 가 이 클래스로 폴백합니다.
 
-감지 규칙 (10가지):
+감지 규칙 (12가지):
   HIGH   - UPDATE/DELETE WHERE 절 없음
   MEDIUM - WHERE 절 컬럼에 함수 적용 (인덱스 무효화)
   MEDIUM - 묵시적 형변환 의심 (= '숫자')
   MEDIUM - NOT IN 서브쿼리 NULL 위험
   MEDIUM - LIKE '%값' 앞 와일드카드
   MEDIUM - SELECT 절 스칼라 서브쿼리 3개 이상
+  MEDIUM - 구식 ROWNUM 페이징 패턴 (이중 중첩)
+  MEDIUM - ORDER BY 없는 ROWNUM 페이징
   LOW    - SELECT * 사용
   LOW    - WHERE 절 OR 조건 3개 이상
   INFO   - DISTINCT + JOIN 조합
@@ -43,6 +45,8 @@ class RegexAnalyzer(SqlAnalyzer):
         issues += self._check_or_condition(sql_upper)
         issues += self._check_distinct_join(sql_upper)
         issues += self._check_union_vs_union_all(sql_upper)
+        issues += self._check_rownum_nested_paging(sql_upper)
+        issues += self._check_rownum_no_order(sql_upper)
 
         return self.sort_issues(issues)
 
@@ -286,6 +290,70 @@ class RegexAnalyzer(SqlAnalyzer):
                 suggestion=(
                     "중복 데이터가 없다고 확인된 경우 UNION ALL로 변경하세요.\n"
                     "UNION ALL은 중복 제거 연산이 없어 성능이 향상됩니다."
+                ),
+            )]
+        return []
+
+    def _check_rownum_nested_paging(self, sql: str) -> list[SqlIssue]:
+        """
+        이중 중첩 ROWNUM 페이징 패턴 감지 (AstAnalyzer 폴백용).
+
+        ROWNUM 이 SQL 안에 2회 이상 등장하면 구식 중첩 페이징으로 간주한다.
+        category/title 은 AstAnalyzer 와 동일하게 유지하여 CompositeAnalyzer 중복 제거를 활용한다.
+        """
+        count = len(re.findall(r'\bROWNUM\b', sql, re.IGNORECASE))
+        if count >= 2:
+            return [SqlIssue(
+                severity='MEDIUM',
+                category='PAGING',
+                title='구식 ROWNUM 페이징 패턴',
+                description=(
+                    "SELECT * FROM (SELECT ..., ROWNUM RN FROM (...) WHERE ROWNUM <= :n)\n"
+                    "WHERE RN >= :m 형태의 구식 Oracle 페이징입니다.\n"
+                    "복잡한 중첩 구조로 성능 예측이 어렵고 유지보수가 힘듭니다."
+                ),
+                suggestion=(
+                    "Oracle 12c 이상이면 OFFSET/FETCH NEXT를 사용하세요:\n"
+                    "  SELECT * FROM ORDERS ORDER BY ORDER_DATE\n"
+                    "  OFFSET :offset ROWS FETCH NEXT :n ROWS ONLY\n\n"
+                    "또는 ROW_NUMBER() OVER() 방식:\n"
+                    "  SELECT * FROM (\n"
+                    "    SELECT A.*, ROW_NUMBER() OVER (ORDER BY ORDER_DATE) AS RN\n"
+                    "    FROM ORDERS A\n"
+                    "  ) WHERE RN BETWEEN :start AND :end"
+                ),
+            )]
+        return []
+
+    def _check_rownum_no_order(self, sql: str) -> list[SqlIssue]:
+        """
+        ORDER BY 없는 ROWNUM <= N 단독 사용 감지 (AstAnalyzer 폴백용).
+
+        ROWNUM 이 정확히 1회 등장하고 ORDER BY 가 없으면 경고한다.
+        (이중 중첩은 _check_rownum_nested_paging 에서 처리하므로 1회만 체크)
+        """
+        rownum_count = len(re.findall(r'\bROWNUM\b', sql, re.IGNORECASE))
+        if rownum_count != 1:
+            return []
+        has_rownum_limit = bool(re.search(r'\bROWNUM\s*<=', sql, re.IGNORECASE))
+        has_order = bool(re.search(r'\bORDER\s+BY\b', sql, re.IGNORECASE))
+        if has_rownum_limit and not has_order:
+            return [SqlIssue(
+                severity='MEDIUM',
+                category='PAGING',
+                title='ORDER BY 없는 ROWNUM 페이징',
+                description=(
+                    "WHERE ROWNUM <= N 조건이 ORDER BY 없이 사용되었습니다.\n"
+                    "ORDER BY가 없으면 어떤 행이 반환될지 보장되지 않습니다.\n"
+                    "Oracle의 행 저장 순서는 실행마다 달라질 수 있습니다."
+                ),
+                suggestion=(
+                    "ORDER BY를 추가하거나 ROW_NUMBER() OVER(ORDER BY ...) 방식을 사용하세요.\n\n"
+                    "예시:\n"
+                    "  나쁜 예: SELECT * FROM ORDERS WHERE ROWNUM <= 10\n"
+                    "  좋은 예: SELECT * FROM (\n"
+                    "             SELECT * FROM ORDERS ORDER BY ORDER_DATE\n"
+                    "           ) WHERE ROWNUM <= 10"
                 ),
             )]
         return []
