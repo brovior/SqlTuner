@@ -398,12 +398,14 @@ class OracleClient:
                 ))
 
             # 2) 같은 statement_id로 DBMS_XPLAN 텍스트 조회 (추가 EXPLAIN PLAN 불필요)
-            cursor.execute("""
+            # ※ TABLE(pipelined_func(:bind)) 구문은 일부 Oracle 버전에서 ORA-00938 발생 →
+            #   statement_id 는 내부 고정 상수이므로 f-string으로 직접 삽입
+            cursor.execute(f"""
                 SELECT PLAN_TABLE_OUTPUT
                 FROM TABLE(DBMS_XPLAN.DISPLAY(
-                    'PLAN_TABLE', :sid, 'ALL'
+                    'PLAN_TABLE', '{statement_id}', 'ALL'
                 ))
-            """, sid=statement_id)
+            """)
             xplan_lines = [row[0] for row in cursor.fetchall()]
 
             self._connection.rollback()
