@@ -174,3 +174,78 @@ def test_union_all_ok(ana):
 def test_invalid_sql_raises(ana):
     with pytest.raises(Exception):
         ana.analyze("THIS IS NOT SQL @@##!!")
+
+
+# ── ROWNUM 페이징 안티패턴 ───────────────────────────────────────
+
+def test_rownum_nested_paging_detected(ana):
+    """ROWNUM 이중 중첩 페이징 패턴 감지"""
+    sql = (
+        "SELECT * FROM ("
+        "  SELECT A.*, ROWNUM RN FROM ("
+        "    SELECT * FROM ORDERS ORDER BY ORDER_DATE"
+        "  ) A WHERE ROWNUM <= 100"
+        ") WHERE RN >= 1"
+    )
+    issues = ana.analyze(sql)
+    assert any(i.category == 'PAGING' and '구식' in i.title for i in issues), issues
+
+
+def test_rownum_nested_severity_medium(ana):
+    """이중 중첩 ROWNUM 페이징 → severity=MEDIUM"""
+    sql = "SELECT * FROM (SELECT *, ROWNUM RN FROM T WHERE ROWNUM <= 20) WHERE RN > 10"
+    issues = ana.analyze(sql)
+    paging = [i for i in issues if i.category == 'PAGING' and '구식' in i.title]
+    assert paging, "구식 ROWNUM 페이징 이슈 없음"
+    assert paging[0].severity == 'MEDIUM'
+
+
+def test_rownum_no_order_detected(ana):
+    """ORDER BY 없는 ROWNUM <= N 단독 사용 감지"""
+    sql = "SELECT * FROM ORDERS WHERE ROWNUM <= 10"
+    issues = ana.analyze(sql)
+    assert any(i.category == 'PAGING' and 'ORDER BY' in i.title for i in issues), issues
+
+
+def test_rownum_no_order_severity_medium(ana):
+    """ORDER BY 없는 ROWNUM 페이징 → severity=MEDIUM"""
+    sql = "SELECT * FROM ORDERS WHERE ROWNUM <= 5"
+    issues = ana.analyze(sql)
+    paging = [i for i in issues if 'ORDER BY' in i.title]
+    assert paging, "ORDER BY 없는 ROWNUM 이슈 없음"
+    assert paging[0].severity == 'MEDIUM'
+
+
+def test_rownum_with_order_no_issue(ana):
+    """ROWNUM <= N + ORDER BY → 'ORDER BY 없는' 경고 없음"""
+    sql = (
+        "SELECT * FROM ("
+        "  SELECT * FROM ORDERS ORDER BY ORDER_DATE"
+        ") WHERE ROWNUM <= 10"
+    )
+    issues = ana.analyze(sql)
+    assert not any('ORDER BY 없는' in i.title for i in issues)
+
+
+def test_rownum_no_paging_no_issue(ana):
+    """ROWNUM 없는 쿼리 → PAGING 이슈 없음"""
+    sql = "SELECT * FROM ORDERS WHERE ORDER_DATE > SYSDATE - 30"
+    issues = ana.analyze(sql)
+    assert not any(i.category == 'PAGING' for i in issues)
+
+
+def test_rownum_nested_not_flagged_as_no_order(ana):
+    """이중 중첩 ROWNUM → 'ORDER BY 없는' 이슈 없음 (중첩 이슈만 발생)"""
+    sql = "SELECT * FROM (SELECT *, ROWNUM RN FROM T WHERE ROWNUM <= 20) WHERE RN > 10"
+    issues = ana.analyze(sql)
+    titles = [i.title for i in issues]
+    assert not any('ORDER BY 없는' in t for t in titles)
+
+
+def test_rownum_paging_suggestion_contains_row_number(ana):
+    """구식 ROWNUM 이슈의 제안에 ROW_NUMBER 언급 포함"""
+    sql = "SELECT * FROM (SELECT *, ROWNUM RN FROM T WHERE ROWNUM <= 20) WHERE RN > 10"
+    issues = ana.analyze(sql)
+    paging = [i for i in issues if i.category == 'PAGING' and '구식' in i.title]
+    assert paging
+    assert 'ROW_NUMBER' in paging[0].suggestion

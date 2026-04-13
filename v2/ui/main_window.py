@@ -28,6 +28,7 @@ from PyQt5.QtCore import Qt, QSettings, QSize
 from v2.core.db.oracle_client import OracleClient
 from v2.core.db.plan_analyzer import PlanIssue
 from v2.core.analysis.base import SqlIssue
+from v2.core.analysis.hint_advisor import HintAdvisor
 from v2.core.ai.ai_provider import AIProviderConfig, create_provider
 from v2.core.ai.ai_tuner import AiSqlTuner
 
@@ -395,13 +396,23 @@ class MainWindow(QMainWindow):
         all_issues = sql_issues + plan_issues + resource_issues
         self._issues_tab.populate(all_issues)
 
+        # 힌트 자동 추천
+        hint_suggestions = HintAdvisor().advise(plan_rows, index_infos)
+        self._issues_tab.populate_hints(hint_suggestions)
+
         self._current_sql = self._sql_editor.toPlainText().strip().rstrip(';').strip()
         self._current_issues = all_issues
 
         self._stats_tab.set_sql(self._current_sql)
         self._stats_tab.populate_stats(stats_infos, stats_advices, has_stats_privilege)
         self._result_tab.set_sql(self._current_sql)
-        self._rewrite_tab.refresh(self._current_sql, all_issues)
+        self._rewrite_tab.refresh(
+            self._current_sql,
+            all_issues,
+            index_infos=index_infos,
+            stats_infos=stats_infos,
+            plan_rows=plan_rows,
+        )
 
         issue_count = len(all_issues)
         high_count = sum(1 for i in all_issues if i.severity == 'HIGH')

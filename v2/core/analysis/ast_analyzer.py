@@ -10,6 +10,9 @@ RegexAnalyzer 대비 개선 사항:
      - P3: Column || '' 연산으로 형변환 유도
      - 주석/문자열 리터럴 내부 오탐 없음
   3. 주석 또는 문자열 리터럴 내부의 키워드를 오탐하지 않음
+  4. ROWNUM 페이징 안티패턴 (2종)
+     - 이중 중첩 ROWNUM 페이징 (구식 Oracle 페이징)
+     - ORDER BY 없는 ROWNUM <= N 단독 사용
 
 파싱 실패 시 상위(CompositeAnalyzer)가 RegexAnalyzer 로 폴백합니다.
 """
@@ -64,6 +67,8 @@ class AstAnalyzer(SqlAnalyzer):
         issues += self._check_scalar_subquery(tree)
         issues += self._check_union_vs_union_all(tree)
         issues += self._check_missing_where(tree, sql)
+        issues += self._check_rownum_nested_paging(tree)
+        issues += self._check_rownum_no_order(tree)
 
         return self.sort_issues(issues)
 
@@ -397,4 +402,108 @@ class AstAnalyzer(SqlAnalyzer):
                     "테스트 전 SELECT로 영향 행 수를 먼저 확인하는 것을 권장합니다."
                 ),
             )]
+        return []
+
+    @staticmethod
+    def _where_contains_rownum(where_node) -> bool:
+        """WHERE 절에 ROWNUM 컬럼이 있는지 확인한다."""
+        return any(
+            (col.name or '').upper() == 'ROWNUM'
+            for col in where_node.find_all(exp.Column)
+        )
+
+    @staticmethod
+    def _is_inside_subquery(node) -> bool:
+        """노드가 Subquery(인라인 뷰) 안에 있는지 확인한다."""
+        parent = node.parent
+        while parent:
+            if isinstance(parent, exp.Subquery):
+                return True
+            parent = parent.parent
+        return False
+
+    def _check_rownum_nested_paging(self, tree) -> list[SqlIssue]:
+        """
+        이중 중첩 ROWNUM 페이징 패턴 감지.
+
+        Oracle 구식 페이징의 전형적인 형태:
+          SELECT * FROM (
+            SELECT A.*, ROWNUM RN FROM (...) A WHERE ROWNUM <= :end
+          ) WHERE RN >= :start
+
+        감지 기준:
+          ① Subquery(인라인 뷰) 안쪽 WHERE 절에 ROWNUM 이 있고
+          ② 그 Subquery 를 감싸는 바깥쪽 WHERE 절이 존재한다
+        """
+        rownum_in_subquery = False
+        has_outer_where = False
+
+        for where in tree.find_all(exp.Where):
+            if self._where_contains_rownum(where):
+                if self._is_inside_subquery(where):
+                    rownum_in_subquery = True
+            else:
+                has_outer_where = True
+
+        if rownum_in_subquery and has_outer_where:
+            return [SqlIssue(
+                severity='MEDIUM',
+                category='PAGING',
+                title='구식 ROWNUM 페이징 패턴',
+                description=(
+                    "SELECT * FROM (SELECT ..., ROWNUM RN FROM (...) WHERE ROWNUM <= :n)\n"
+                    "WHERE RN >= :m 형태의 구식 Oracle 페이징입니다.\n"
+                    "복잡한 중첩 구조로 성능 예측이 어렵고 유지보수가 힘듭니다."
+                ),
+                suggestion=(
+                    "Oracle 12c 이상이면 OFFSET/FETCH NEXT를 사용하세요:\n"
+                    "  SELECT * FROM ORDERS ORDER BY ORDER_DATE\n"
+                    "  OFFSET :offset ROWS FETCH NEXT :n ROWS ONLY\n\n"
+                    "또는 ROW_NUMBER() OVER() 방식:\n"
+                    "  SELECT * FROM (\n"
+                    "    SELECT A.*, ROW_NUMBER() OVER (ORDER BY ORDER_DATE) AS RN\n"
+                    "    FROM ORDERS A\n"
+                    "  ) WHERE RN BETWEEN :start AND :end"
+                ),
+            )]
+        return []
+
+    def _check_rownum_no_order(self, tree) -> list[SqlIssue]:
+        """
+        ORDER BY 없는 ROWNUM <= N 단독 사용 감지.
+
+        WHERE ROWNUM <= N 조건이 있으나 ORDER BY 절이 없으면
+        어떤 행이 반환될지 보장되지 않는다.
+
+        감지 기준:
+          ① Subquery 밖(최상위) WHERE 절에 ROWNUM 이 있고
+          ② 쿼리 전체에 ORDER BY 가 없다
+          (Subquery 안쪽 ROWNUM 은 _check_rownum_nested_paging 에서 처리)
+        """
+        for where in tree.find_all(exp.Where):
+            if not self._where_contains_rownum(where):
+                continue
+            # 이 WHERE가 Subquery 밖에 있어야 한다
+            if self._is_inside_subquery(where):
+                continue
+            # ORDER BY 가 없으면 경고
+            if not tree.find(exp.Order):
+                return [SqlIssue(
+                    severity='MEDIUM',
+                    category='PAGING',
+                    title='ORDER BY 없는 ROWNUM 페이징',
+                    description=(
+                        "WHERE ROWNUM <= N 조건이 ORDER BY 없이 사용되었습니다.\n"
+                        "ORDER BY가 없으면 어떤 행이 반환될지 보장되지 않습니다.\n"
+                        "Oracle의 행 저장 순서는 실행마다 달라질 수 있습니다."
+                    ),
+                    suggestion=(
+                        "ORDER BY를 추가하거나 ROW_NUMBER() OVER(ORDER BY ...) 방식을 사용하세요.\n\n"
+                        "예시:\n"
+                        "  나쁜 예: SELECT * FROM ORDERS WHERE ROWNUM <= 10\n"
+                        "  좋은 예: SELECT * FROM (\n"
+                        "             SELECT * FROM ORDERS ORDER BY ORDER_DATE\n"
+                        "           ) WHERE ROWNUM <= 10"
+                    ),
+                )]
         return []

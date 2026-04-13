@@ -44,6 +44,10 @@ class RewriteTab(QWidget):
         self._current_sql: str = ''
         self._current_issues: list = []
         self._db_version: str = ''
+        # 분석 완료 시 채워지는 추가 컨텍스트 (AI 프롬프트에 포함)
+        self._index_infos: list = []
+        self._stats_infos: list = []
+        self._plan_rows: list = []
 
         self._build_ui()
 
@@ -64,10 +68,20 @@ class RewriteTab(QWidget):
     def update_ai_provider_label(self, label: str):
         self._ai_provider_label.setText(f'제공자: {label}')
 
-    def refresh(self, sql: str, issues: list):
+    def refresh(
+        self,
+        sql: str,
+        issues: list,
+        index_infos: list | None = None,
+        stats_infos: list | None = None,
+        plan_rows: list | None = None,
+    ):
         """분석 완료 후 MainWindow 가 호출. 규칙 재작성 자동 실행."""
         self._current_sql = sql
         self._current_issues = issues
+        self._index_infos = index_infos or []
+        self._stats_infos = stats_infos or []
+        self._plan_rows = plan_rows or []
         self._populate_rule_rewrite(sql)
         self._ai_sql_edit.clear()
         self._clear_validation()
@@ -77,6 +91,9 @@ class RewriteTab(QWidget):
     def clear(self):
         self._current_sql = ''
         self._current_issues = []
+        self._index_infos = []
+        self._stats_infos = []
+        self._plan_rows = []
         self._rewrite_changes_label.setText('분석 실행 후 자동으로 표시됩니다.')
         self._rewrite_changes_label.setStyleSheet('color: #888888;')
         self._rewrite_sql_edit.clear()
@@ -216,7 +233,13 @@ class RewriteTab(QWidget):
         self._ai_sql_edit.setPlainText('AI 튜닝 요청 중입니다...')
 
         self._ai_worker = AiTuneWorker(
-            self._tuner, self._current_sql, self._current_issues, self._db_version
+            self._tuner,
+            self._current_sql,
+            self._current_issues,
+            self._db_version,
+            index_infos=self._index_infos or None,
+            stats_infos=self._stats_infos or None,
+            plan_rows=self._plan_rows or None,
         )
         self._ai_worker.finished.connect(self._on_ai_done)
         self._ai_worker.error.connect(self._on_ai_error)
