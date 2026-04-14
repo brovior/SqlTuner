@@ -80,7 +80,9 @@ exe = EXE(
     upx=False,
     console=False,
     disable_windowed_traceback=False,
-    target_arch='x86',      # 32-bit 빌드
+    # target_arch: 로컬 32-bit 빌드 시에는 아래 주석을 해제하세요
+    #   py -3.13-32 -m PyInstaller v2/SQL_Tuner_v2.spec --clean
+    # target_arch='x86',
     codesign_identity=None,
     entitlements_file=None,
 )
