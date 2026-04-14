@@ -76,6 +76,7 @@ docker compose up -d
 
 :: 준비 완료 대기 (DATABASE IS READY TO USE! 메시지 확인)
 docker logs -f oracle-xe
+docker run -d --name oracle-free -p 1521:1521 -e ORACLE_PASSWORD=test123 gvenzl/oracle-free:slim
 ```
 
 ### 연결 정보
@@ -88,7 +89,7 @@ docker logs -f oracle-xe
 | 유저 | system |
 | 비밀번호 | test123 |
 
-앱에서 **[DB 연결]** → TNS 직접 입력 탭 → 위 값 입력
+앱에서 **[DB 연결]** → TNS 직접 입력 탭 → 위 값 입력 localhost:1521/FREEPDB1
 
 ---
 

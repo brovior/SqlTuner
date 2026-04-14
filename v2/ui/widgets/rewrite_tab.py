@@ -8,10 +8,12 @@
 """
 from __future__ import annotations
 
+import webbrowser
+
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGroupBox,
     QPlainTextEdit, QTextEdit, QPushButton, QLabel,
-    QApplication,
+    QApplication, QCheckBox, QFileDialog, QMessageBox,
 )
 from PyQt5.QtGui import QFont
 
@@ -19,6 +21,7 @@ from v2.core.rewrite.composite_rewriter import CompositeRewriter
 from v2.core.ai.ai_tuner import AiSqlTuner
 from v2.core.db.oracle_client import OracleClient
 from v2.core.pipeline.validation import ValidationResult
+from v2.core.report.tuning_report import TuningReporter
 from v2.ui.workers.ai_tune_worker import AiTuneWorker
 from v2.ui.workers.validate_worker import ValidateWorker
 from v2.ui.widgets.sql_editor import SqlHighlighter
@@ -41,6 +44,8 @@ class RewriteTab(QWidget):
         self._rewriter = CompositeRewriter()
         self._ai_worker: AiTuneWorker | None = None
         self._validate_worker: ValidateWorker | None = None
+        self._last_validation: ValidationResult | None = None
+        self._last_tuned_sql: str = ''
         self._current_sql: str = ''
         self._current_issues: list = []
         self._db_version: str = ''
@@ -180,6 +185,13 @@ class RewriteTab(QWidget):
         self._btn_ai_tune.clicked.connect(self._on_ai_tune_clicked)
         btn_row.addWidget(self._btn_ai_tune)
 
+        self._chk_measure_time = QCheckBox('실행시간 측정')
+        self._chk_measure_time.setToolTip(
+            '실제 SQL을 실행하여 원본/튜닝 SQL의 실행시간을 비교합니다\n'
+            '(SELECT / WITH 전용 — DML은 거부됩니다)'
+        )
+        btn_row.addWidget(self._chk_measure_time)
+
         self._btn_validate = QPushButton('검증 실행')
         self._btn_validate.setFixedWidth(100)
         self._btn_validate.setEnabled(False)
@@ -202,6 +214,17 @@ class RewriteTab(QWidget):
             '[검증 실행] 버튼을 클릭하면 원본 SQL과 AI 튜닝 SQL의 실행 계획을 비교합니다.'
         )
         vbox.addWidget(self._validation_text)
+
+        btn_row = QHBoxLayout()
+        btn_row.addStretch()
+        self._btn_save_report = QPushButton('리포트 저장')
+        self._btn_save_report.setFixedWidth(110)
+        self._btn_save_report.setEnabled(False)
+        self._btn_save_report.setToolTip('검증 결과를 HTML 리포트로 저장하고 브라우저에서 엽니다')
+        self._btn_save_report.clicked.connect(self._on_save_report_clicked)
+        btn_row.addWidget(self._btn_save_report)
+        vbox.addLayout(btn_row)
+
         return group
 
     # ── 규칙 재작성 ──────────────────────────────
@@ -269,14 +292,22 @@ class RewriteTab(QWidget):
         self._btn_validate.setText('검증 중...')
         self._validation_text.setPlainText('검증 중입니다...')
 
-        self._validate_worker = ValidateWorker(self._client, self._current_sql, tuned_sql)
+        self._validate_worker = ValidateWorker(
+            self._client,
+            self._current_sql,
+            tuned_sql,
+            measure_time=self._chk_measure_time.isChecked(),
+        )
         self._validate_worker.finished.connect(self._on_validate_done)
         self._validate_worker.error.connect(self._on_validate_error)
         self._validate_worker.start()
 
     def _on_validate_done(self, result: ValidationResult):
+        self._last_validation = result
+        self._last_tuned_sql = self._ai_sql_edit.toPlainText().strip()
         self._btn_validate.setEnabled(True)
         self._btn_validate.setText('검증 실행')
+        self._btn_save_report.setEnabled(result.is_valid)
         self._display_validation(result)
 
     def _on_validate_error(self, msg: str):
@@ -284,29 +315,81 @@ class RewriteTab(QWidget):
         self._btn_validate.setText('검증 실행')
         self._validation_text.setPlainText(f'[검증 오류]\n{msg}')
 
+    # 판정별 배경/글자 색상
+    _VERDICT_STYLE: dict[str, tuple[str, str]] = {
+        'APPROVE': ('#d4edda', '#155724'),   # 초록
+        'REVIEW':  ('#fff3cd', '#856404'),   # 노랑
+        'REJECT':  ('#f8d7da', '#721c24'),   # 빨강
+    }
+
     def _display_validation(self, r: ValidationResult):
-        lines = [r.verdict_label, '']
+        bg, fg = self._VERDICT_STYLE.get(r.verdict, ('#ffffff', '#000000'))
+
+        # ── 판정 헤더 (색상 배경) ──
+        reasons_html = '  /  '.join(r.verdict_reasons) if r.verdict_reasons else ''
+        header = (
+            f'<div style="background:{bg};color:{fg};padding:6px 8px;'
+            f'border-radius:4px;font-weight:bold;">'
+            f'{r.verdict_label}'
+            f'{"<br/><span style=\'font-weight:normal;font-size:0.9em\'>" + reasons_html + "</span>" if reasons_html else ""}'
+            f'</div>'
+        )
+
+        # ── 본문 ──
+        body_lines: list[str] = []
 
         if r.is_valid:
-            lines.append(r.cost_summary)
-            lines.append('')
+            body_lines.append(r.cost_summary)
+            if r.original_elapsed_ms is not None:
+                body_lines.append(r.elapsed_summary)
+            body_lines.append('')
 
             if r.resolved_issues:
-                lines.append(f'해결된 이슈 ({len(r.resolved_issues)}건):')
+                body_lines.append(f'해결된 이슈 ({len(r.resolved_issues)}건):')
                 for i in r.resolved_issues:
-                    lines.append(f'  ✓ [{i.severity}] {i.title}')
-                lines.append('')
+                    body_lines.append(f'  ✓ [{i.severity}] {i.title}')
+                body_lines.append('')
 
             if r.new_issues:
-                lines.append(f'새로 생긴 이슈 ({len(r.new_issues)}건):')
+                body_lines.append(f'새로 생긴 이슈 ({len(r.new_issues)}건):')
                 for i in r.new_issues:
-                    lines.append(f'  ! [{i.severity}] {i.title}')
+                    body_lines.append(f'  ! [{i.severity}] {i.title}')
         else:
-            lines.append(r.error_message)
+            body_lines.append(r.error_message)
 
-        self._validation_text.setPlainText('\n'.join(lines))
+        body_html = '<pre style="margin:6px 0 0 0;">' + '\n'.join(body_lines) + '</pre>'
+        self._validation_text.setHtml(header + body_html)
 
     def _clear_validation(self):
         self._validation_text.clear()
+        self._last_validation = None
+        self._last_tuned_sql = ''
         self._btn_validate.setEnabled(False)
         self._btn_validate.setText('검증 실행')
+        self._btn_save_report.setEnabled(False)
+
+    # ── 리포트 저장 ───────────────────────────────
+
+    def _on_save_report_clicked(self):
+        if not self._last_validation or not self._current_sql:
+            return
+
+        path, _ = QFileDialog.getSaveFileName(
+            self,
+            '리포트 저장',
+            'tuning_report.html',
+            'HTML 파일 (*.html)',
+        )
+        if not path:
+            return
+
+        try:
+            TuningReporter().save_html(
+                path,
+                self._current_sql,
+                self._last_tuned_sql,
+                self._last_validation,
+            )
+            webbrowser.open(path)
+        except Exception as e:
+            QMessageBox.warning(self, '저장 오류', f'리포트 저장 중 오류가 발생했습니다.\n{e}')
