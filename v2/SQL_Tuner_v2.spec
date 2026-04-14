@@ -66,8 +66,10 @@ a = Analysis(
     hooksconfig={},
     runtime_hooks=[],
     excludes=[
-        'tkinter', 'unittest', 'email', 'html', 'http',
-        'urllib', 'xml', 'xmlrpc', 'ftplib', 'imaplib',
+        # email/html/http/urllib 은 sqlglot → importlib.metadata 경로에서
+        # 간접 의존하므로 제외하면 ModuleNotFoundError 발생 — 제거
+        'tkinter', 'unittest',
+        'xmlrpc', 'ftplib', 'imaplib',
         'pytest', '_pytest',
     ],
     noarchive=False,
