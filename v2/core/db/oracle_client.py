@@ -350,9 +350,9 @@ class OracleClient:
 
         try:
             # 기존 플랜 삭제
+            # ※ statement_id 는 내부 고정 상수이므로 f-string 삽입 (바인드 변수 ORA-00938 방지)
             cursor.execute(
-                "DELETE FROM PLAN_TABLE WHERE STATEMENT_ID = :sid",
-                sid=statement_id
+                f"DELETE FROM PLAN_TABLE WHERE STATEMENT_ID = '{statement_id}'"
             )
 
             # EXPLAIN PLAN 1회 실행 (바인드 변수 있으면 네이티브 바인드로 전달)
@@ -363,7 +363,8 @@ class OracleClient:
                 cursor.execute(plan_sql)
 
             # 1) PLAN_TABLE에서 PlanRow 조회
-            cursor.execute("""
+            # ※ statement_id 는 내부 고정 상수이므로 f-string 삽입 (바인드 변수 ORA-00938 방지)
+            cursor.execute(f"""
                 SELECT
                     ID,
                     PARENT_ID,
@@ -377,9 +378,9 @@ class OracleClient:
                     IO_COST,
                     DEPTH
                 FROM PLAN_TABLE
-                WHERE STATEMENT_ID = :sid
+                WHERE STATEMENT_ID = '{statement_id}'
                 ORDER BY ID
-            """, sid=statement_id)
+            """)
 
             rows = []
             for row in cursor.fetchall():
