@@ -7,37 +7,50 @@
 
 import os
 import sqlglot
-from PyInstaller.utils.hooks import collect_all, collect_submodules
+from PyInstaller.utils.hooks import (
+    collect_data_files,
+    collect_dynamic_libs,
+    collect_submodules,
+    collect_all,
+)
 
 # spec 파일 위치: <project_root>/v2/SQL_Tuner_v2.spec
 # SPECPATH  = v2/  디렉토리 (PyInstaller 내장 변수)
 # 프로젝트 루트 = SPECPATH 의 부모
 _ROOT = os.path.dirname(SPECPATH)   # noqa: F821  (SPECPATH는 PyInstaller 내장)
 
-# ── oracledb: C 확장 모듈(.pyd) 포함 전체 수집 ────────────────────
-_oracle_datas, _oracle_binaries, _oracle_hidden = collect_all('oracledb')
+# ── oracledb: .pyd 바이너리 + 데이터 + 서브모듈 수동 수집 ─────────
+_oracle_binaries  = collect_dynamic_libs('oracledb')
+_oracle_datas     = collect_data_files('oracledb')
+_oracle_hidden    = collect_submodules('oracledb')
+
+# ── cryptography: oracledb Thin 모드 TLS 의존성 ───────────────────
+_crypto_datas, _crypto_bins, _crypto_hidden = collect_all('cryptography')
+
+# ── certifi: TLS 인증서 번들 ──────────────────────────────────────
+_certifi_datas = collect_data_files('certifi')
 
 # ── sqlglot: 방언 파일 수집 ────────────────────────────────────────
 _sqlglot_dir = os.path.dirname(sqlglot.__file__)
 _sqlglot_datas = [
     (os.path.join(_sqlglot_dir, 'dialects'), 'sqlglot/dialects'),
 ]
-# tokens.py 가 없는 sqlglot 버전도 있으므로 존재할 때만 추가
 _tokens_py = os.path.join(_sqlglot_dir, 'tokens.py')
 if os.path.isfile(_tokens_py):
     _sqlglot_datas.append((_tokens_py, 'sqlglot'))
 
 a = Analysis(
     [os.path.join(_ROOT, 'v2', 'main.py')],
-    pathex=[_ROOT],           # 프로젝트 루트에서 v2 패키지 import 가능하도록
-    binaries=_oracle_binaries,
+    pathex=[_ROOT],
+    binaries=_oracle_binaries + _crypto_bins,
     datas=[
         (os.path.join(_ROOT, 'v2', 'core'), 'v2/core'),
         (os.path.join(_ROOT, 'v2', 'ui'),   'v2/ui'),
-    ] + _sqlglot_datas + _oracle_datas,
+    ] + _sqlglot_datas + _oracle_datas + _crypto_datas + _certifi_datas,
     hiddenimports=[
-        # oracledb (collect_all 로 자동 수집되지만 명시적으로도 추가)
         *_oracle_hidden,
+        *_crypto_hidden,
+        'certifi',
         # PyQt5
         'PyQt5.QtWidgets',
         'PyQt5.QtCore',
@@ -68,7 +81,6 @@ a = Analysis(
     hooksconfig={},
     runtime_hooks=[],
     excludes=[
-        # email/html/http/urllib 은 importlib.metadata 경유 의존 — 제외 금지
         'tkinter', 'unittest',
         'xmlrpc', 'ftplib', 'imaplib',
         'pytest', '_pytest',
