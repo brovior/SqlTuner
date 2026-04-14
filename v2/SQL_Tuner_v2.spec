@@ -7,13 +7,17 @@
 
 import os
 import sqlglot
+from PyInstaller.utils.hooks import collect_all, collect_submodules
 
 # spec 파일 위치: <project_root>/v2/SQL_Tuner_v2.spec
 # SPECPATH  = v2/  디렉토리 (PyInstaller 내장 변수)
 # 프로젝트 루트 = SPECPATH 의 부모
 _ROOT = os.path.dirname(SPECPATH)   # noqa: F821  (SPECPATH는 PyInstaller 내장)
 
-# sqlglot 방언 파일 위치 (Oracle 방언 포함)
+# ── oracledb: C 확장 모듈(.pyd) 포함 전체 수집 ────────────────────
+_oracle_datas, _oracle_binaries, _oracle_hidden = collect_all('oracledb')
+
+# ── sqlglot: 방언 파일 수집 ────────────────────────────────────────
 _sqlglot_dir = os.path.dirname(sqlglot.__file__)
 _sqlglot_datas = [
     (os.path.join(_sqlglot_dir, 'dialects'), 'sqlglot/dialects'),
@@ -26,16 +30,14 @@ if os.path.isfile(_tokens_py):
 a = Analysis(
     [os.path.join(_ROOT, 'v2', 'main.py')],
     pathex=[_ROOT],           # 프로젝트 루트에서 v2 패키지 import 가능하도록
-    binaries=[],
+    binaries=_oracle_binaries,
     datas=[
         (os.path.join(_ROOT, 'v2', 'core'), 'v2/core'),
         (os.path.join(_ROOT, 'v2', 'ui'),   'v2/ui'),
-    ] + _sqlglot_datas,
+    ] + _sqlglot_datas + _oracle_datas,
     hiddenimports=[
-        # oracledb
-        'oracledb',
-        'oracledb.thick_impl',
-        'oracledb.thin_impl',
+        # oracledb (collect_all 로 자동 수집되지만 명시적으로도 추가)
+        *_oracle_hidden,
         # PyQt5
         'PyQt5.QtWidgets',
         'PyQt5.QtCore',
@@ -66,8 +68,7 @@ a = Analysis(
     hooksconfig={},
     runtime_hooks=[],
     excludes=[
-        # email/html/http/urllib 은 sqlglot → importlib.metadata 경로에서
-        # 간접 의존하므로 제외하면 ModuleNotFoundError 발생 — 제거
+        # email/html/http/urllib 은 importlib.metadata 경유 의존 — 제외 금지
         'tkinter', 'unittest',
         'xmlrpc', 'ftplib', 'imaplib',
         'pytest', '_pytest',
