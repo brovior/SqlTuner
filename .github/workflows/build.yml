@@ -22,7 +22,18 @@ jobs:
       - name: 패키지 설치
         run: |
           python -m pip install --upgrade pip
-          pip install PyQt5 oracledb sqlglot pyinstaller
+          pip install PyQt5 oracledb sqlglot cryptography certifi pyinstaller
+
+      - name: 의존성 import 검증 (빌드 전 사전 확인)
+        run: |
+          python -c "import oracledb; print('oracledb', oracledb.__version__)"
+          python -c "import PyQt5.QtWidgets; print('PyQt5 OK')"
+          python -c "import sqlglot; print('sqlglot', sqlglot.__version__)"
+          python -c "import cryptography; print('cryptography OK')"
+          python -c "import v2.core.db.oracle_client; print('oracle_client OK')"
+          python -c "import v2.ui.main_window; print('main_window OK')"
+        env:
+          PYTHONPATH: ${{ github.workspace }}
 
       - name: EXE 빌드 (PyInstaller)
         run: |
@@ -30,7 +41,7 @@ jobs:
 
       - name: 빌드 결과 확인
         run: |
-          dir dist\
+          dir "dist\SQL Tuner v2\"
 
       - name: 결과물 압축
         run: |
