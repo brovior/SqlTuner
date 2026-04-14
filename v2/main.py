@@ -16,6 +16,9 @@ if _ROOT not in sys.path:
 
 from PyQt5.QtWidgets import QApplication
 from v2.ui.main_window import MainWindow
+from v2.core.app_logger import get_logger
+
+_logger = get_logger('main')
 
 
 def main():
@@ -26,10 +29,14 @@ def main():
     app.setOrganizationName('SQLTuner')
     app.setStyle('Fusion')
 
+    _logger.info('===== Oracle SQL Tuner v2 시작 =====')
+
     window = MainWindow()
     window.show()
 
-    sys.exit(app.exec())
+    exit_code = app.exec()
+    _logger.info('===== 앱 종료 (exit_code=%d) =====', exit_code)
+    sys.exit(exit_code)
 
 
 if __name__ == '__main__':

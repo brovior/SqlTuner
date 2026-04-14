@@ -25,3 +25,6 @@ packages_build/
 # OS
 Thumbs.db
 desktop.ini
+
+# 로그
+logs/

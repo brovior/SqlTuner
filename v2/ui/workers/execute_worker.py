@@ -5,6 +5,9 @@ from __future__ import annotations
 from PyQt5.QtCore import QThread, pyqtSignal
 
 from v2.core.db.oracle_client import OracleClient
+from v2.core.app_logger import get_logger
+
+_logger = get_logger('execute_worker')
 
 
 class ExecuteWorker(QThread):
@@ -23,10 +26,13 @@ class ExecuteWorker(QThread):
         self._bind_vars = bind_vars
 
     def run(self):
+        _logger.info('SQL 실행 — %s', self._sql[:120].replace('\n', ' '))
         try:
             columns, rows, elapsed_ms, sql_id = self._client.execute_sql(
                 self._sql, self._max_rows, self._bind_vars
             )
+            _logger.info('SQL 실행 완료 — rows=%d, elapsed=%.1fms', len(rows), elapsed_ms)
             self.finished.emit(columns, rows, elapsed_ms, len(rows), sql_id)
         except Exception as e:
+            _logger.error('SQL 실행 오류', exc_info=True)
             self.error.emit(str(e))
