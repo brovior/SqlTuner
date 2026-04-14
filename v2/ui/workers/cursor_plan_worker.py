@@ -12,6 +12,9 @@ from __future__ import annotations
 from PyQt5.QtCore import QThread, pyqtSignal
 
 from v2.core.db.oracle_client import OracleClient
+from v2.core.app_logger import get_logger
+
+_logger = get_logger('cursor_plan_worker')
 
 
 class CursorPlanWorker(QThread):
@@ -34,5 +37,6 @@ class CursorPlanWorker(QThread):
                 self._sql, self._bind_vars
             )
         except Exception as e:
+            _logger.error('실제 플랜 조회 오류', exc_info=True)
             plan_text = f'[워커 오류]\n{e}'
         self.finished.emit(plan_text)

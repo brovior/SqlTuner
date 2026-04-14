@@ -21,6 +21,9 @@ from v2.core.analysis.composite_analyzer import CompositeAnalyzer
 from v2.core.analysis.base import SqlIssue
 from v2.core.analysis.index_advisor import IndexAdvisor
 from v2.core.analysis.stats_advisor import StatsAdvisor
+from v2.core.app_logger import get_logger
+
+_logger = get_logger('plan_worker')
 
 
 class PlanWorker(QThread):
@@ -37,6 +40,7 @@ class PlanWorker(QThread):
         self._analyzer = CompositeAnalyzer()
 
     def run(self):
+        _logger.info('분석 시작 — SQL: %s', self._sql[:120].replace('\n', ' '))
         try:
             # explain_plan() 내부에서 V$MYSTAT 사전 스냅샷을 자동 저장
             plan_rows, xplan_text = self._client.explain_plan(self._sql, self._bind_vars)
@@ -58,6 +62,7 @@ class PlanWorker(QThread):
                 idx_advisor = IndexAdvisor(self._client)
                 index_infos, index_advices = idx_advisor.advise(self._sql)
             except Exception:
+                _logger.warning('IndexAdvisor 실패', exc_info=True)
                 index_infos, index_advices = [], []
 
             # 통계 어드바이저 (DB 권한 부족 등 실패 시 빈 리스트로 폴백)
@@ -66,12 +71,18 @@ class PlanWorker(QThread):
                 stats_infos, stats_advices = stats_advisor.advise(self._sql)
                 has_stats_privilege = self._client.check_stats_privilege()
             except Exception:
+                _logger.warning('StatsAdvisor 실패', exc_info=True)
                 stats_infos, stats_advices = [], []
                 has_stats_privilege = False
 
+            _logger.info(
+                '분석 완료 — plan_rows=%d, issues=%d',
+                len(plan_rows), len(sql_issues) + len(plan_issues),
+            )
             self.finished.emit(
                 plan_rows, xplan_text, sql_issues, plan_issues, engine_used, resource,
                 index_infos, index_advices, stats_infos, stats_advices, has_stats_privilege,
             )
         except Exception as e:
+            _logger.error('분석 중 오류 발생', exc_info=True)
             self.error.emit(str(e))

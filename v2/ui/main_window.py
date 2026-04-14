@@ -31,6 +31,9 @@ from v2.core.analysis.base import SqlIssue
 from v2.core.analysis.hint_advisor import HintAdvisor
 from v2.core.ai.ai_provider import AIProviderConfig, create_provider
 from v2.core.ai.ai_tuner import AiSqlTuner
+from v2.core.app_logger import get_logger, LOG_FILE_PATH
+
+_logger = get_logger('main_window')
 
 from v2.ui.workers.plan_worker import PlanWorker
 from v2.ui.workers.execute_worker import ExecuteWorker
@@ -189,6 +192,12 @@ class MainWindow(QMainWindow):
 
         tb.addSeparator()
 
+        action_log = QAction('로그 보기', self)
+        action_log.triggered.connect(self._show_log_viewer)
+        tb.addAction(action_log)
+
+        tb.addSeparator()
+
         self._conn_label = QLabel('  미연결')
         self._conn_label.setStyleSheet('color: #888888; font-weight: bold;')
         tb.addWidget(self._conn_label)
@@ -232,6 +241,7 @@ class MainWindow(QMainWindow):
                 msg += '  ※ Thin 모드로 연결'
             self._statusbar.showMessage(msg, 7000)
         except (RuntimeError, ConnectionError) as e:
+            _logger.error('DB 연결 실패: %s', e, exc_info=True)
             QMessageBox.critical(self, 'DB 연결 실패', str(e))
             self._statusbar.showMessage('연결 실패', 3000)
 
@@ -428,7 +438,11 @@ class MainWindow(QMainWindow):
     def _on_analysis_error(self, msg: str):
         self._btn_analyze.setEnabled(True)
         self._statusbar.showMessage('분석 오류', 3000)
-        QMessageBox.critical(self, '분석 오류', msg)
+        _logger.error('분석 오류 (UI): %s', msg)
+        QMessageBox.critical(
+            self, '분석 오류',
+            f'{msg}\n\n자세한 내용은 로그 파일을 확인하세요:\n{LOG_FILE_PATH}',
+        )
 
     # ── SQL 직접 실행 ─────────────────────────────
 
@@ -519,6 +533,77 @@ class MainWindow(QMainWindow):
             model=settings.value('AI/model', ''),
         )
         return create_provider(config)
+
+    # ── 로그 뷰어 ────────────────────────────────
+
+    def _show_log_viewer(self):
+        """로그 파일 내용을 다이얼로그로 표시합니다."""
+        from PyQt5.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QTextEdit, QPushButton
+        from PyQt5.QtGui import QFont
+
+        dlg = QDialog(self)
+        dlg.setWindowTitle(f'로그 뷰어 — {LOG_FILE_PATH}')
+        dlg.resize(900, 560)
+
+        layout = QVBoxLayout(dlg)
+
+        text = QTextEdit()
+        text.setReadOnly(True)
+        text.setFont(QFont('Consolas', 9))
+        text.setLineWrapMode(QTextEdit.NoWrap)
+
+        if os.path.exists(LOG_FILE_PATH):
+            try:
+                with open(LOG_FILE_PATH, encoding='utf-8', errors='replace') as f:
+                    content = f.read()
+                # 최근 2000줄만 표시
+                lines = content.splitlines()
+                if len(lines) > 2000:
+                    lines = ['[... 오래된 로그 생략 ...]'] + lines[-2000:]
+                text.setPlainText('\n'.join(lines))
+                # 스크롤을 맨 아래로
+                cursor = text.textCursor()
+                cursor.movePosition(cursor.End)
+                text.setTextCursor(cursor)
+            except Exception as e:
+                text.setPlainText(f'로그 파일 읽기 오류: {e}')
+        else:
+            text.setPlainText(f'로그 파일이 없습니다.\n{LOG_FILE_PATH}')
+
+        layout.addWidget(text)
+
+        btn_row = QHBoxLayout()
+        btn_refresh = QPushButton('새로고침')
+        btn_refresh.clicked.connect(lambda: self._refresh_log_text(text))
+        btn_open = QPushButton('탐색기에서 열기')
+        btn_open.clicked.connect(lambda: os.startfile(os.path.dirname(LOG_FILE_PATH)))
+        btn_close = QPushButton('닫기')
+        btn_close.clicked.connect(dlg.accept)
+        btn_row.addWidget(btn_refresh)
+        btn_row.addWidget(btn_open)
+        btn_row.addStretch()
+        btn_row.addWidget(btn_close)
+        layout.addLayout(btn_row)
+
+        dlg.exec()
+
+    def _refresh_log_text(self, text_widget):
+        """로그 뷰어 텍스트를 파일에서 다시 읽어 갱신합니다."""
+        if not os.path.exists(LOG_FILE_PATH):
+            text_widget.setPlainText('로그 파일이 없습니다.')
+            return
+        try:
+            with open(LOG_FILE_PATH, encoding='utf-8', errors='replace') as f:
+                content = f.read()
+            lines = content.splitlines()
+            if len(lines) > 2000:
+                lines = ['[... 오래된 로그 생략 ...]'] + lines[-2000:]
+            text_widget.setPlainText('\n'.join(lines))
+            cursor = text_widget.textCursor()
+            cursor.movePosition(cursor.End)
+            text_widget.setTextCursor(cursor)
+        except Exception as e:
+            text_widget.setPlainText(f'로그 파일 읽기 오류: {e}')
 
     # ── 종료 ─────────────────────────────────────
 
