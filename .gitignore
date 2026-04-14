@@ -28,3 +28,5 @@ desktop.ini
 
 # 로그
 logs/
+tuning_report.html
+.gitignore
