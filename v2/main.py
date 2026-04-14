@@ -31,6 +31,14 @@ def main():
 
     _logger.info('===== Oracle SQL Tuner v2 시작 =====')
 
+    # oracledb import 가능 여부를 시작 시점에 기록
+    from v2.core.db.oracle_client import ORACLEDB_AVAILABLE, _ORACLEDB_IMPORT_ERROR
+    if ORACLEDB_AVAILABLE:
+        import oracledb
+        _logger.info('oracledb %s 로드 성공', oracledb.__version__)
+    else:
+        _logger.error('oracledb 로드 실패: %s', _ORACLEDB_IMPORT_ERROR)
+
     window = MainWindow()
     window.show()
 

@@ -5,8 +5,10 @@ python-oracledb Thick 모드 사용 (기존 Oracle 11 클라이언트 활용)
 try:
     import oracledb
     ORACLEDB_AVAILABLE = True
-except ImportError:
+    _ORACLEDB_IMPORT_ERROR: str | None = None
+except Exception as _e:
     ORACLEDB_AVAILABLE = False
+    _ORACLEDB_IMPORT_ERROR = f'{type(_e).__name__}: {_e}'
     oracledb = None  # type: ignore
 
 import os
@@ -149,9 +151,9 @@ class OracleClient:
         DPI-1047(아키텍처 불일치) 등 실패 시 Thin 모드로 자동 전환합니다.
         """
         if not ORACLEDB_AVAILABLE:
+            detail = f'\n\n[import 오류] {_ORACLEDB_IMPORT_ERROR}' if _ORACLEDB_IMPORT_ERROR else ''
             raise RuntimeError(
-                "oracledb 패키지가 설치되어 있지 않습니다.\n"
-                "install_online.bat 또는 install.bat을 실행하세요."
+                f"oracledb 패키지를 로드할 수 없습니다.{detail}"
             )
 
         # tnsnames.ora 위치를 TNS_ADMIN으로 설정
