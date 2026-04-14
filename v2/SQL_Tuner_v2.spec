@@ -1,28 +1,35 @@
 # -*- mode: python ; coding: utf-8 -*-
 # SQL Tuner v2 PyInstaller 빌드 스펙
-# 사용법: py -3.13-32 -m PyInstaller v2/SQL_Tuner_v2.spec --clean
 #
-# 주의: 반드시 프로젝트 루트에서 실행해야 합니다.
-#   cd C:\Users\brovi\Project\SqlTuner
-#   build_exe_v2.bat
+# 실행 방법 (프로젝트 루트에서):
+#   pyinstaller v2/SQL_Tuner_v2.spec --clean          # 64-bit (CI/CD)
+#   py -3.13-32 -m PyInstaller v2/SQL_Tuner_v2.spec --clean  # 32-bit (로컬)
 
 import os
 import sqlglot
+
+# spec 파일 위치: <project_root>/v2/SQL_Tuner_v2.spec
+# SPECPATH  = v2/  디렉토리 (PyInstaller 내장 변수)
+# 프로젝트 루트 = SPECPATH 의 부모
+_ROOT = os.path.dirname(SPECPATH)   # noqa: F821  (SPECPATH는 PyInstaller 내장)
 
 # sqlglot 방언 파일 위치 (Oracle 방언 포함)
 _sqlglot_dir = os.path.dirname(sqlglot.__file__)
 _sqlglot_datas = [
     (os.path.join(_sqlglot_dir, 'dialects'), 'sqlglot/dialects'),
-    (os.path.join(_sqlglot_dir, 'tokens.py'), 'sqlglot'),
 ]
+# tokens.py 가 없는 sqlglot 버전도 있으므로 존재할 때만 추가
+_tokens_py = os.path.join(_sqlglot_dir, 'tokens.py')
+if os.path.isfile(_tokens_py):
+    _sqlglot_datas.append((_tokens_py, 'sqlglot'))
 
 a = Analysis(
-    ['v2/main.py'],
-    pathex=['.'],           # 프로젝트 루트를 기준으로 탐색
+    [os.path.join(_ROOT, 'v2', 'main.py')],
+    pathex=[_ROOT],           # 프로젝트 루트에서 v2 패키지 import 가능하도록
     binaries=[],
     datas=[
-        ('v2/core',  'v2/core'),
-        ('v2/ui',    'v2/ui'),
+        (os.path.join(_ROOT, 'v2', 'core'), 'v2/core'),
+        (os.path.join(_ROOT, 'v2', 'ui'),   'v2/ui'),
     ] + _sqlglot_datas,
     hiddenimports=[
         # oracledb
@@ -81,7 +88,6 @@ exe = EXE(
     console=False,
     disable_windowed_traceback=False,
     # target_arch: 로컬 32-bit 빌드 시에는 아래 주석을 해제하세요
-    #   py -3.13-32 -m PyInstaller v2/SQL_Tuner_v2.spec --clean
     # target_arch='x86',
     codesign_identity=None,
     entitlements_file=None,
