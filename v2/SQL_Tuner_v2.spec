@@ -51,6 +51,16 @@ a = Analysis(
         *_oracle_hidden,
         *_crypto_hidden,
         'certifi',
+        'typing_extensions',
+        # oracledb 가 내부적으로 사용하는 표준 라이브러리
+        # (thick_impl.pyd 등 컴파일 확장은 AST 스캔 불가 → 포괄 추가)
+        'getpass', 'ssl', 'socket', 'select', 'struct',
+        'hashlib', 'hmac', 'secrets', 'array',
+        'base64', 'json', 'uuid', 'threading',
+        'collections', 'collections.abc',
+        'urllib', 'urllib.parse', 'urllib.request', 'urllib.error',
+        'email', 'email.message', 'email.parser', 'email.utils',
+        'http', 'http.client',
         # PyQt5
         'PyQt5.QtWidgets',
         'PyQt5.QtCore',
