@@ -16,15 +16,26 @@ class ValidateWorker(QThread):
     finished = pyqtSignal(object)   # ValidationResult
     error = pyqtSignal(str)
 
-    def __init__(self, client: OracleClient, original_sql: str, tuned_sql: str):
+    def __init__(
+        self,
+        client: OracleClient,
+        original_sql: str,
+        tuned_sql: str,
+        measure_time: bool = False,
+    ):
         super().__init__()
         self._validator = TuningValidator(client)
         self._original_sql = original_sql
         self._tuned_sql = tuned_sql
+        self._measure_time = measure_time
 
     def run(self):
         try:
-            result = self._validator.validate(self._original_sql, self._tuned_sql)
+            result = self._validator.validate(
+                self._original_sql,
+                self._tuned_sql,
+                measure_time=self._measure_time,
+            )
             self.finished.emit(result)
         except Exception as e:
             self.error.emit(str(e))

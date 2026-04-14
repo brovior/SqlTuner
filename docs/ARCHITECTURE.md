@@ -101,8 +101,73 @@ AI API를 활용해 추가 튜닝 제안을 생성하는 모듈.
 
 ## v2/core/pipeline/validation.py
 
-분석 실행 전 SQL 유효성을 검사하는 파이프라인.
-- 빈 SQL, 위험한 DDL 패턴 등 사전 차단
+원본 SQL과 튜닝 SQL을 비교하는 검증 파이프라인.
+
+### ValidationResult 데이터클래스
+
+| 필드 | 타입 | 설명 |
+|------|------|------|
+| `is_valid` | bool | EXPLAIN PLAN 성공 여부 |
+| `error_message` | str | 실패 시 오류 메시지 |
+| `original_cost` | int\|None | 원본 SQL 루트 노드 Cost |
+| `tuned_cost` | int\|None | 튜닝 SQL 루트 노드 Cost |
+| `cost_delta_pct` | float\|None | Cost 변화율 (음수=감소=개선) |
+| `original_issues` | list[PlanIssue] | 원본 SQL 이슈 목록 |
+| `tuned_issues` | list[PlanIssue] | 튜닝 SQL 이슈 목록 |
+| `resolved_issues` | list[PlanIssue] | 원본에만 있던 이슈 (해소됨) |
+| `new_issues` | list[PlanIssue] | 튜닝 후 새로 생긴 이슈 |
+| `row_count_match` | bool\|None | 결과 행 수 일치 여부 (None=미검증) |
+| `original_elapsed_ms` | float\|None | 원본 실행시간 (measure_time=True 시) |
+| `tuned_elapsed_ms` | float\|None | 튜닝 실행시간 (measure_time=True 시) |
+| `elapsed_delta_pct` | float\|None | 실행시간 변화율 |
+| `original_xplan` | str | 원본 DBMS_XPLAN 텍스트 |
+| `tuned_xplan` | str | 튜닝 DBMS_XPLAN 텍스트 |
+| `verdict` | str | **자동 판정** — APPROVE / REVIEW / REJECT (`__post_init__` 자동 계산) |
+| `verdict_reasons` | list[str] | 판정 근거 문자열 목록 |
+
+### 자동 판정 규칙 (`_compute_auto_verdict`)
+
+| 판정 | 조건 |
+|------|------|
+| **REJECT** | `is_valid=False` OR `row_count_match=False` OR `cost_delta_pct > 10` OR `new_issues` 존재 |
+| **APPROVE** | 위 조건 없음 AND `cost_delta_pct ≤ -10` AND `resolved_issues ≥ 1` |
+| **REVIEW** | REJECT도 APPROVE도 아닌 경우 |
+
+### 주요 프로퍼티
+
+- `quality_verdict` : 세분화 품질 레이블 (INVALID / IMPROVED / WARNING / REGRESSED / NEUTRAL)
+- `verdict_label` : 판정 한국어 레이블 (UI 표시용)
+- `cost_summary` : Cost 비교 한 줄 요약 문자열
+- `elapsed_summary` : 실행시간 비교 한 줄 요약 문자열
+
+### TuningValidator
+
+```python
+TuningValidator(client).validate(original_sql, tuned_sql, measure_time=False)
+```
+
+- SQL 전처리: 세미콜론 제거 + 앞뒤 공백 제거
+- `measure_time=True`: `execute_sql()` 호출로 실제 실행시간 측정 (SELECT/WITH 전용)
+- DB 미연결 시 즉시 `is_valid=False` 반환
+
+---
+
+## v2/core/report/tuning_report.py
+
+튜닝 결과를 단독 열람 가능한 HTML 파일로 내보내는 모듈.
+
+- `TuningReporter.generate_html(original_sql, tuned_sql, result)` → str
+- `TuningReporter.save_html(path, original_sql, tuned_sql, result)` → None
+- 외부 CSS/JS 의존 없음 — 인라인 스타일로 완전한 단일 파일 생성
+
+### 리포트 섹션 구성
+
+| 섹션 | 내용 |
+|------|------|
+| 요약 | 판정 배지(APPROVE/REVIEW/REJECT) + 원본/튜닝 SQL 나란히 표시 |
+| 성능 비교 | Cost 원본 vs 튜닝 vs 변화율 / 실행시간(측정 시) / Row Count(검증 시) |
+| 이슈 분석 | 해소된 이슈(초록) / 신규 이슈(빨강) |
+| 판정 근거 | `verdict_reasons` 목록 |
 
 ---
 
@@ -144,7 +209,7 @@ AI API를 활용해 추가 튜닝 제안을 생성하는 모듈.
 | `xplan_tab.py` | DBMS_XPLAN 텍스트 탭 |
 | `issues_tab.py` | 튜닝 제안 탭 |
 | `wait_event_tab.py` | 리소스 분석 탭 (ResourceAnalysis 표시, 조회방법 레이블, 3단계 폴백 원인 표시) |
-| `rewrite_tab.py` | 재작성 SQL + AI 튜닝 탭 |
+| `rewrite_tab.py` | 재작성 SQL + AI 튜닝 + 검증 탭. 실행시간 측정 체크박스, 리포트 저장 버튼 포함 |
 | `stats_tab.py` | V$SQL 통계 탭 |
 | `result_tab.py` | SQL 실행 결과 탭 |
 
@@ -156,7 +221,7 @@ AI API를 활용해 추가 튜닝 제안을 생성하는 모듈.
 |------|------|
 | `plan_worker.py` | EXPLAIN PLAN + 이슈 분석 + 리소스 분석(3단계 폴백) 백그라운드 실행 |
 | `execute_worker.py` | SQL 직접 실행 백그라운드 실행 |
-| `validate_worker.py` | SQL 유효성 검사 백그라운드 실행 |
+| `validate_worker.py` | `TuningValidator.validate()` 백그라운드 실행. `measure_time` 옵션 전달 |
 | `ai_tune_worker.py` | AI 튜닝 요청 백그라운드 실행 |
 
 ---
@@ -170,3 +235,5 @@ AI API를 활용해 추가 튜닝 제안을 생성하는 모듈.
 | `test_plan_analyzer.py` | `core/db/plan_analyzer.py` |
 | `test_regex_analyzer.py` | `core/analysis/regex_analyzer.py` |
 | `test_regex_rewriter.py` | `core/rewrite/regex_rewriter.py` |
+| `test_tuning_validator.py` | `core/pipeline/validation.py` — 전처리, Cost 비교, 자동 판정(APPROVE/REVIEW/REJECT), 실행시간 |
+| `test_tuning_report.py` | `core/report/tuning_report.py` — HTML 생성, 필수 섹션, 조건부 행, 파일 저장 |

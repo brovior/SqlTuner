@@ -48,7 +48,8 @@ SQL Tuner/
     │   ├── ai/              # AI 튜닝 (ai_provider, ai_tuner)
     │   ├── analysis/        # SQL 정적 분석 (ast, regex, composite)
     │   ├── db/              # DB 연동 (oracle_client, plan_analyzer, tns_parser)
-    │   ├── pipeline/        # 분석 파이프라인 (validation)
+    │   ├── pipeline/        # 튜닝 검증 파이프라인 (validation)
+    │   ├── report/          # HTML 리포트 생성 (tuning_report)
     │   └── rewrite/         # SQL 재작성 (ast, regex, composite)
     ├── ui/
     │   ├── main_window.py
@@ -130,8 +131,11 @@ SQL 입력창에 SQL 작성
 | 새로운 SQL 안티패턴 (AST) | `v2/core/analysis/ast_analyzer.py` |
 | 새로운 SQL 안티패턴 (정규식) | `v2/core/analysis/regex_analyzer.py` |
 | SQL 재작성 로직 | `v2/core/rewrite/` |
+| 튜닝 SQL 검증 / 자동 판정 로직 | `v2/core/pipeline/validation.py` |
+| HTML 리포트 레이아웃/내용 | `v2/core/report/tuning_report.py` |
 | 화면 레이아웃 | `v2/ui/main_window.py` |
 | 탭 위젯 | `v2/ui/widgets/` |
+| 재작성·AI튜닝·검증 탭 UI | `v2/ui/widgets/rewrite_tab.py` |
 | DB 연결 방식 | `v2/core/db/oracle_client.py` |
 | 연결 다이얼로그 | `v2/ui/dialogs/connection_dialog.py` |
 | AI 설정 | `v2/ui/dialogs/ai_settings_dialog.py` |
@@ -142,20 +146,38 @@ SQL 입력창에 SQL 작성
 > 개발 환경 설정 → [docs/SETUP.md](docs/SETUP.md)
 
 
-## 마지막 작업 현황 (2026-04-14)
-- DBA 로드맵 7단계 완료
-- 완료: STEP 7-1/7-2 (ROWNUM 페이징 안티패턴 감지)
-  - ast_analyzer.py: _check_rownum_nested_paging, _check_rownum_no_order 추가
-  - regex_analyzer.py: _check_rownum_nested_paging, _check_rownum_no_order 추가
-- 완료: STEP 7-3 (스칼라 서브쿼리 → LEFT JOIN 변환)
-  - ast_rewriter.py: _scalar_subquery_to_left_join 추가
-- 완료: STEP 7-4 (WHERE IN 서브쿼리 → JOIN 변환)
-  - ast_rewriter.py: _in_subquery_to_join 추가
-- 완료: STEP 7-5 (힌트 자동 추천 — LEADING/USE_NL/USE_HASH/INDEX)
-  - hint_advisor.py: 신규 생성 (HintSuggestion, HintAdvisor)
-  - issues_tab.py: populate_hints(), _build_hint_group() 추가
-  - main_window.py: HintAdvisor 연동
-- 완료: STEP 7-6 (인라인 뷰 힌트 — PUSH_PRED/NO_MERGE)
-  - hint_advisor.py: _suggest_inline_view, _has_filter_ancestor, _build_full_hint 추가
-- 7단계 전체 완료 — 225 passed
-- 다음 작업: 8단계 또는 신규 기능 논의
+## 마지막 작업 현황 (2026-04-15)
+
+### 8단계: 튜닝 검증 파이프라인 (8-1 ~ 8-4 + 리포트)
+
+- 완료: **8-1 TuningValidator 완성** (`v2/core/pipeline/validation.py`)
+  - `validate(original_sql, tuned_sql)` 구현
+  - EXPLAIN PLAN 실행 → 루트 Cost 비교 → PlanIssue 목록 비교
+  - SQL 전처리: 세미콜론 제거, 앞뒤 공백 제거
+  - `ValidationResult` 데이터클래스: is_valid, cost_delta_pct, resolved_issues, new_issues
+
+- 완료: **8-2 실행시간 측정** (`validation.py`, `validate_worker.py`, `rewrite_tab.py`)
+  - `validate(..., measure_time=True)` 옵션 추가
+  - `original_elapsed_ms`, `tuned_elapsed_ms`, `elapsed_delta_pct` 필드
+  - SELECT / WITH 전용 — DML은 `execute_sql()` 가드에서 거부
+  - rewrite_tab: "실행시간 측정" 체크박스 추가
+
+- 완료: **8-3 row_count_match 필드** (`validation.py`)
+  - `row_count_match: Optional[bool]` 필드 추가 (미검증 시 None)
+
+- 완료: **8-4 자동 판정** (`validation.py`)
+  - `verdict: str` 필드 — APPROVE / REVIEW / REJECT
+  - `verdict_reasons: list[str]` 필드 — 판정 근거 문자열 목록
+  - `_compute_auto_verdict()` 순수 함수 (모듈 수준, 테스트 용이)
+  - 기존 `verdict` 프로퍼티 → `quality_verdict` (INVALID/IMPROVED/WARNING 등 세분화 레이블)
+  - rewrite_tab: 판정별 색상 표시 (APPROVE=초록, REVIEW=노랑, REJECT=빨강)
+
+- 완료: **HTML 리포트 생성** (`v2/core/report/tuning_report.py` 신규)
+  - `TuningReporter.generate_html(original_sql, tuned_sql, result)` → str
+  - `TuningReporter.save_html(path, ...)` → None
+  - 섹션: 요약(SQL 나란히 + 판정 배지) / 성능 비교 테이블 / 이슈 분석 / 판정 근거
+  - 인라인 CSS — 외부 파일 없이 단독 열람 가능
+  - rewrite_tab: "리포트 저장" 버튼 → QFileDialog → webbrowser.open
+
+- 8단계 완료 — **242 passed**
+- 다음 작업: 9단계 또는 신규 기능 논의
