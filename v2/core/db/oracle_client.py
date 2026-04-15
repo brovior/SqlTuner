@@ -348,6 +348,11 @@ class OracleClient:
         # V$MYSTAT 3순위 폴백을 위해 분석 직전 세션 통계 스냅샷 저장
         self._pre_analysis_mystat = self._snapshot_mystat()
         statement_id = 'SQL_TUNER_PLAN'
+
+        # SQL 전처리: 세미콜론 제거 + 앞뒤 공백 제거
+        # 세미콜론이 붙으면 EXPLAIN PLAN 구문이 깨져 ORA-00911 또는 ORA-00938 발생 가능
+        sql = sql.strip().rstrip(';').strip()
+
         cursor = self._connection.cursor()
 
         try:
@@ -417,10 +422,28 @@ class OracleClient:
         except oracledb.Error as e:
             self._connection.rollback()
             error_obj, = e.args
+            code = error_obj.code
+            message = error_obj.message
+
+            # ORA-00938: 함수의 인수가 충분하지 않습니다
+            # → SQL 또는 참조 뷰/객체에 인수가 누락된 함수 호출이 있을 때 발생
+            if code == 938:
+                hint = (
+                    "\n\n[원인 안내]\n"
+                    "SQL 또는 참조하는 뷰/함수에 인수가 부족한 함수 호출이 포함되어 있습니다.\n"
+                    "예) NVL(col) → NVL(col, 0) / DECODE(col) → DECODE(col, ...) \n"
+                    "SQL Developer 에서 직접 실행하여 오류 위치를 확인하세요."
+                )
+                raise ValueError(
+                    f"EXPLAIN PLAN 실행 오류\n"
+                    f"오류코드: {code}\n"
+                    f"메시지: {message}{hint}"
+                )
+
             raise ValueError(
                 f"EXPLAIN PLAN 실행 오류\n"
-                f"오류코드: {error_obj.code}\n"
-                f"메시지: {error_obj.message}"
+                f"오류코드: {code}\n"
+                f"메시지: {message}"
             )
         finally:
             cursor.close()
