@@ -93,6 +93,19 @@ build_exe_v2.bat
 
 ---
 
+## 로컬 AI (Ollama) 설정
+
+| 항목 | 값 |
+|------|-----|
+| 다운로드 | https://ollama.com/download |
+| 모델 설치 | `ollama pull qwen2.5-coder:7b` |
+| AI 설정 URL | `http://localhost:11434/v1` |
+| AI 설정 Model | `qwen2.5-coder:7b` |
+
+> 앱 실행 후 툴바 **[AI 설정]** 버튼 → 위 값 입력
+
+---
+
 ## 오프라인 설치 (인터넷 없는 환경)
 
 1. 인터넷이 되는 PC에서 패키지 다운로드

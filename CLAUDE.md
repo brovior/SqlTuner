@@ -47,7 +47,7 @@ SQL Tuner/
     ├── core/
     │   ├── ai/              # AI 튜닝 (ai_provider, ai_tuner)
     │   ├── analysis/        # SQL 정적 분석 (ast, regex, composite)
-    │   ├── db/              # DB 연동 (oracle_client, plan_analyzer, tns_parser)
+    │   ├── db/              # DB 연동 (models, oracle_client, plan_executor, plan_analyzer, tns_parser)
     │   ├── pipeline/        # 튜닝 검증 파이프라인 (validation)
     │   ├── report/          # HTML 리포트 생성 (tuning_report)
     │   └── rewrite/         # SQL 재작성 (ast, regex, composite)
@@ -75,12 +75,8 @@ SQL Tuner/
 Oracle DB 접속 성공 → 상태바에 "연결됨" 표시
   │
   ▼
-SQL 입력창에 SQL 작성
-  │
-  ▼
-[실행 계획 분석] 클릭 (Ctrl+Enter)
-  │
-  ├─ SQL에 :변수명 있으면 → 바인드 변수 값 입력 다이얼로그
+SQL 입력창에 SQL 작성 (Ctrl+Enter 로 빠르게 분석 실행)
+  │  → 바인드 변수(:변수명) 포함 시 값 입력 다이얼로그 자동 표시
   │
   ▼
 백그라운드에서 분석 실행
@@ -97,32 +93,6 @@ SQL 입력창에 SQL 작성
 
 ---
 
-## 로컬 AI (Ollama) 환경
-
-| 항목 | 값 |
-|------|-----|
-| 다운로드 | https://ollama.com/download |
-| 모델 설치 | `ollama pull qwen2.5-coder:7b` |
-| AI 설정 URL | `http://localhost:11434/v1` |
-| AI 설정 Model | `qwen2.5-coder:7b` |
-
-> 앱 실행 후 툴바 **[AI 설정]** 버튼 → 위 값 입력
-
----
-
-## 주의사항
-
-- Oracle **Thick Client**가 설치된 환경에서만 최적 동작 (설치 없으면 Thin 모드로 자동 전환)
-- DB 계정에 `PLAN_TABLE` 쓰기 권한과 `V$SQL` 조회 권한이 필요
-- Windows 전용 배포 (`.bat` 스크립트 기반)
-- `Ctrl+Enter` 단축키로 빠르게 분석 가능
-- 바인드 변수(`:변수명`) 포함 SQL도 분석 가능 (값 입력 다이얼로그 자동 표시)
-- 로직에 큰 변화가 있을시에는 자동으로 claude.md 파일을 update 할 것.
-- 신규 의존성이 생길떄는 requirements.txt 파일에 update할 것
-- 소스 구조 변경사항이 있을시에는 ARCHITECTURE.md에 update 할 것.
-- 소스 변경이 끝나면 test case에 대해서 가이드 할 것.
----
-
 ## 코드 수정 시 참고사항
 
 | 하고 싶은 것 | 수정할 파일 |
@@ -137,6 +107,8 @@ SQL 입력창에 SQL 작성
 | 탭 위젯 | `v2/ui/widgets/` |
 | 재작성·AI튜닝·검증 탭 UI | `v2/ui/widgets/rewrite_tab.py` |
 | DB 연결 방식 | `v2/core/db/oracle_client.py` |
+| EXPLAIN PLAN / ORA-00938 디버깅 | `v2/core/db/plan_executor.py` |
+| DB 데이터 클래스 / 상수 | `v2/core/db/models.py` |
 | 연결 다이얼로그 | `v2/ui/dialogs/connection_dialog.py` |
 | AI 설정 | `v2/ui/dialogs/ai_settings_dialog.py` |
 | 바인드 변수 다이얼로그 | `v2/ui/dialogs/bind_vars_dialog.py` |
@@ -145,39 +117,33 @@ SQL 입력창에 SQL 작성
 > 상세 모듈 설명 → [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)  
 > 개발 환경 설정 → [docs/SETUP.md](docs/SETUP.md)
 
+---
 
-## 마지막 작업 현황 (2026-04-15)
+## Claude 작업 규칙
 
-### 8단계: 튜닝 검증 파이프라인 (8-1 ~ 8-4 + 리포트)
+소스 작업 시 아래 규칙을 사용자 요청 없이도 **자동으로** 반드시 실행할 것.
 
-- 완료: **8-1 TuningValidator 완성** (`v2/core/pipeline/validation.py`)
-  - `validate(original_sql, tuned_sql)` 구현
-  - EXPLAIN PLAN 실행 → 루트 Cost 비교 → PlanIssue 목록 비교
-  - SQL 전처리: 세미콜론 제거, 앞뒤 공백 제거
-  - `ValidationResult` 데이터클래스: is_valid, cost_delta_pct, resolved_issues, new_issues
+- **구조 변경 시** (파일 추가·삭제·이동, 모듈 분리) → `docs/ARCHITECTURE.md` 업데이트
+- **기능·흐름 변경 시** (주요 로직 추가·변경) → 하단 "마지막 작업 현황" 업데이트
+- **의존성 추가 시** (새 패키지 import) → `requirements.txt` 업데이트
+- **소스 변경 완료 후** → 관련 테스트 케이스 실행 방법 및 확인 항목을 사용자에게 안내
 
-- 완료: **8-2 실행시간 측정** (`validation.py`, `validate_worker.py`, `rewrite_tab.py`)
-  - `validate(..., measure_time=True)` 옵션 추가
-  - `original_elapsed_ms`, `tuned_elapsed_ms`, `elapsed_delta_pct` 필드
-  - SELECT / WITH 전용 — DML은 `execute_sql()` 가드에서 거부
-  - rewrite_tab: "실행시간 측정" 체크박스 추가
+---
 
-- 완료: **8-3 row_count_match 필드** (`validation.py`)
-  - `row_count_match: Optional[bool]` 필드 추가 (미검증 시 None)
+## 마지막 작업 현황 (2026-04-18)
 
-- 완료: **8-4 자동 판정** (`validation.py`)
-  - `verdict: str` 필드 — APPROVE / REVIEW / REJECT
-  - `verdict_reasons: list[str]` 필드 — 판정 근거 문자열 목록
-  - `_compute_auto_verdict()` 순수 함수 (모듈 수준, 테스트 용이)
-  - 기존 `verdict` 프로퍼티 → `quality_verdict` (INVALID/IMPROVED/WARNING 등 세분화 레이블)
-  - rewrite_tab: 판정별 색상 표시 (APPROVE=초록, REVIEW=노랑, REJECT=빨강)
+### 완료: oracle_client.py 리팩토링 (3개 모듈 분리)
 
-- 완료: **HTML 리포트 생성** (`v2/core/report/tuning_report.py` 신규)
-  - `TuningReporter.generate_html(original_sql, tuned_sql, result)` → str
-  - `TuningReporter.save_html(path, ...)` → None
-  - 섹션: 요약(SQL 나란히 + 판정 배지) / 성능 비교 테이블 / 이슈 분석 / 판정 근거
-  - 인라인 CSS — 외부 파일 없이 단독 열람 가능
-  - rewrite_tab: "리포트 저장" 버튼 → QFileDialog → webbrowser.open
+- `v2/core/db/models.py` 신규 — 데이터 클래스 및 상수
+- `v2/core/db/plan_executor.py` 신규 — EXPLAIN PLAN / DISPLAY_CURSOR (ORA-00938 디버깅 대상)
+- `v2/core/db/oracle_client.py` 슬림화 — 연결·통계·메타데이터, re-export로 기존 import 호환 유지
 
-- 8단계 완료 — **242 passed**
-- 다음 작업: 9단계 또는 신규 기능 논의
+### 이전 완료: 8단계 튜닝 검증 파이프라인
+
+- TuningValidator, 실행시간 측정, row_count_match, 자동 판정(APPROVE/REVIEW/REJECT)
+- HTML 리포트 생성 (`v2/core/report/tuning_report.py`)
+- 242 passed
+
+### 다음 작업
+- 9단계 또는 신규 기능 논의
+- 회사 환경 ORA-00938 디버깅 (`plan_executor.py` 집중)
