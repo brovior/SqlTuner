@@ -2,23 +2,48 @@
 
 ---
 
+## v2/core/db/models.py
+
+Oracle DB 관련 데이터 클래스 및 상수 정의.
+
+- `ConnectionInfo` : TNS 별칭, 계정 정보
+- `PlanRow` : EXPLAIN PLAN 한 행
+- `SqlStats` : V$SQL 실행 통계
+- `ResourceMetric` : 리소스 분석 항목 하나 (name, category, raw_value, display_value, severity, suggestion)
+- `ResourceAnalysis` : 리소스 분석 결과 전체 (method, metrics, error_chain)
+- `WAIT_CLASS_SEVERITY` / `WAIT_CLASS_SUGGESTION` : Wait Class별 심각도·개선 제안 상수
+
+---
+
+## v2/core/db/plan_executor.py
+
+EXPLAIN PLAN 및 실제 실행 계획(DISPLAY_CURSOR) 조회를 담당하는 모듈.
+ORA-00938 등 환경별 이슈 디버깅 대상 코드를 `oracle_client.py`에서 분리.
+
+- `PlanExecutor(connection, oracledb_module)` : OracleClient.connect() 후 생성
+- `explain_plan(sql, bind_vars)` : EXPLAIN PLAN 실행 → PlanRow 목록 + DBMS_XPLAN 텍스트 반환
+  - `bind_vars` 전달 시 oracledb 네이티브 바인드로 전달 (문자열 치환 없음)
+- `execute_with_gather_stats(sql, bind_vars)` : GATHER_PLAN_STATISTICS 힌트 주입 후 실행 → DISPLAY_CURSOR 텍스트 반환
+- `snapshot_mystat()` : V$MYSTAT 현재값 스냅샷 (리소스 분석 3순위 폴백용)
+- `pre_analysis_mystat` : explain_plan() 직전 스냅샷 (OracleClient에서 참조)
+
+---
+
 ## v2/core/db/oracle_client.py
 
-Oracle DB와 실제로 통신하는 모듈.
+Oracle DB와 실제로 통신하는 모듈. EXPLAIN PLAN 관련 로직은 `PlanExecutor`에 위임.
+기존 import 호환성을 위해 `models.py`의 클래스들을 re-export.
 
 - `OracleClient` 클래스가 핵심
-- `connect()` : Thick 모드 우선 시도 → 실패 시 Thin 모드 자동 전환
-- `explain_plan(sql, bind_vars)` : EXPLAIN PLAN 실행 후 PlanRow 목록 + DBMS_XPLAN 텍스트 반환
-  - `bind_vars` 전달 시 oracledb 네이티브 바인드로 전달 (문자열 치환 없음)
+- `connect()` : Thick 모드 우선 시도 → 실패 시 Thin 모드 자동 전환, PlanExecutor 생성
+- `explain_plan()` / `execute_with_gather_stats()` : PlanExecutor에 위임
 - `execute_sql(sql, max_rows, bind_vars)` : SELECT 실행, 바인드 변수 지원
 - `get_sql_stats()` : V$SQL에서 실행 이력 조회
 - `get_resource_analysis(sql_keyword)` : 리소스 분석 (3단계 폴백)
   1. V$SESSION_WAIT — 실시간 Wait Event (권한 필요)
   2. V$SQL 통계 — DISK_READS / BUFFER_GETS 등 (V$SQL 권한 + 이전 실행 이력 필요)
   3. V$MYSTAT 차이 — explain_plan() 전후 세션 통계 차이 (항상 사용 가능)
-- `get_table_indexes()`, `get_table_stats()` : 인덱스/통계 조회
-- `ResourceMetric` 데이터클래스 : name, category, raw_value, display_value, severity, suggestion
-- `ResourceAnalysis` 데이터클래스 : method(조회방법 레이블), metrics(list[ResourceMetric]), error_chain
+- `get_table_indexes()`, `get_table_stats()`, `get_column_stats()` : 인덱스/통계/컬럼 조회
 
 ---
 

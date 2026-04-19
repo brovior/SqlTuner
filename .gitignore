@@ -30,3 +30,4 @@ desktop.ini
 logs/
 tuning_report.html
 .gitignore
+.claude/settings.local.json
