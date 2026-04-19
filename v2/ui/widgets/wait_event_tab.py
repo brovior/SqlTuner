@@ -20,13 +20,7 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtGui import QColor, QFont
 from PyQt5.QtCore import Qt
 
-
-_SEVERITY_COLORS = {
-    'HIGH':   ('#CC0000', '#FFE0E0'),
-    'MEDIUM': ('#CC6600', '#FFF3E0'),
-    'LOW':    ('#887700', '#FFFFF0'),
-    'INFO':   ('#005599', '#E8F4FF'),
-}
+from v2.core.constants import SEVERITY_COLORS as _SEVERITY_COLORS
 
 _METHOD_STYLES = {
     'V$SESSION_WAIT 기준': ('color:#004400; background:#E8FFE8; border:1px solid #66AA66;'),

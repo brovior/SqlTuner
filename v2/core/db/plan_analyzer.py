@@ -7,6 +7,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Optional
 from .oracle_client import PlanRow
+from ..constants import NL_INNER_CARD_THRESHOLD, NO_STATS_COST_THRESHOLD, HIGH_COST_MIN_ROOT
 
 
 # 심각도 레벨
@@ -246,7 +247,7 @@ class PlanAnalyzer:
         """단일 노드의 Cost가 전체의 70% 이상이면 HIGH로 보고"""
         # 루트 노드(parent_id가 None)의 cost를 전체 비용으로 사용
         root = next((r for r in self.rows if r.parent_id is None), None)
-        if root is None or root.cost is None or root.cost <= 100:
+        if root is None or root.cost is None or root.cost <= HIGH_COST_MIN_ROOT:
             return
         total_cost = root.cost
 
@@ -282,7 +283,7 @@ class PlanAnalyzer:
                         children_cards.append(child.cardinality)
                 if len(children_cards) >= 2:
                     inner_card = max(children_cards)
-                    if inner_card > 50_000:
+                    if inner_card > NL_INNER_CARD_THRESHOLD:
                         self._issues.append(PlanIssue(
                             severity=SEVERITY_MEDIUM,
                             category='Join 방식',
@@ -305,7 +306,7 @@ class PlanAnalyzer:
             if (row.operation == 'TABLE ACCESS'
                     and row.object_name
                     and row.cardinality == 1
-                    and row.cost is not None and row.cost > 100):
+                    and row.cost is not None and row.cost > NO_STATS_COST_THRESHOLD):
                 no_stat_tables.append(row.object_name)
 
         if no_stat_tables:
