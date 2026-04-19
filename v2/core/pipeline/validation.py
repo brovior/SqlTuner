@@ -20,6 +20,7 @@ from typing import Optional
 
 from ..db.oracle_client import OracleClient
 from ..db.plan_analyzer import PlanAnalyzer, PlanIssue
+from ..constants import COST_DELTA_WARN_PCT
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -52,7 +53,7 @@ def _compute_auto_verdict(r: 'ValidationResult') -> tuple[str, list[str]]:
         reject_reasons.append('문법 오류 — 실행 불가')
     if r.row_count_match is False:
         reject_reasons.append('결과 행 수 불일치')
-    if r.cost_delta_pct is not None and r.cost_delta_pct > 10:
+    if r.cost_delta_pct is not None and r.cost_delta_pct > COST_DELTA_WARN_PCT:
         reject_reasons.append(f'비용 +{r.cost_delta_pct:.1f}% 증가')
     if r.new_issues:
         reject_reasons.append(f'신규 이슈 {len(r.new_issues)}건 발생')
@@ -61,7 +62,7 @@ def _compute_auto_verdict(r: 'ValidationResult') -> tuple[str, list[str]]:
         return 'REJECT', reject_reasons
 
     # ── APPROVE ───────────────────────────────────────────────────
-    cost_ok = r.cost_delta_pct is not None and r.cost_delta_pct <= -10
+    cost_ok = r.cost_delta_pct is not None and r.cost_delta_pct <= -COST_DELTA_WARN_PCT
     resolved_ok = len(r.resolved_issues) >= 1
     row_ok = r.row_count_match is not False   # True 또는 None(미검증) 허용
 

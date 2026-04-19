@@ -15,6 +15,7 @@ from PyQt5.QtGui import QColor
 from PyQt5.QtCore import Qt
 
 from v2.core.db.oracle_client import OracleClient
+from v2.core.constants import STALE_STATS_HIGH_DAYS, STALE_STATS_MEDIUM_DAYS
 
 # 경과일 기준 색상
 _COLOR_RED    = QColor('#FFCCCC')
@@ -168,10 +169,10 @@ class StatsTab(QWidget):
             if info.last_analyzed is None:
                 status_str = '미수집'
                 bg = _COLOR_RED
-            elif days is not None and days > 30:
+            elif days is not None and days > STALE_STATS_HIGH_DAYS:
                 status_str = f'{days}일 경과 (HIGH)'
                 bg = _COLOR_RED
-            elif days is not None and days > 7:
+            elif days is not None and days > STALE_STATS_MEDIUM_DAYS:
                 status_str = f'{days}일 경과 (MEDIUM)'
                 bg = _COLOR_ORANGE
             else:

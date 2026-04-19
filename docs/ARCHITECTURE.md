@@ -2,6 +2,20 @@
 
 ---
 
+## v2/core/constants.py
+
+공유 상수 모듈 — 여러 모듈에 중복 정의되던 상수를 단일 출처(single source of truth)로 일원화.
+
+- `SEVERITY_COLORS` : 심각도별 (fg, bg) 색상 딕셔너리 — UI 위젯에서 공통 사용
+- `NL_INNER_CARD_THRESHOLD` : Nested Loop Join 내부 집합 행 수 경고 기준 (50,000)
+- `NO_STATS_COST_THRESHOLD` / `HIGH_COST_MIN_ROOT` : 실행 계획 분석 임계값
+- `DISK_READS_HIGH` / `DISK_READS_MEDIUM` / `BUFFER_GETS_MEDIUM` : V$SQL I/O 임계값
+- `MYSTAT_*` : V$MYSTAT 세션 통계 임계값 (physical reads, logical reads, redo size)
+- `COST_DELTA_WARN_PCT` : 튜닝 검증 비용 변화율 기준 (10%)
+- `STALE_STATS_HIGH_DAYS` / `STALE_STATS_MEDIUM_DAYS` : 테이블 통계 경과일 기준 (30일 / 7일)
+
+---
+
 ## v2/core/db/models.py
 
 Oracle DB 관련 데이터 클래스 및 상수 정의.
