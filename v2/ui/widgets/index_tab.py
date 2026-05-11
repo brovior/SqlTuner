@@ -16,12 +16,7 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtGui import QColor, QFont
 from PyQt5.QtCore import Qt
 
-
-_SEVERITY_COLORS = {
-    'HIGH':   ('#CC0000', '#FFE0E0'),
-    'MEDIUM': ('#CC6600', '#FFF3E0'),
-    'INFO':   ('#005599', '#E8F4FF'),
-}
+from v2.core.constants import SEVERITY_COLORS as _SEVERITY_COLORS
 
 _PLACEHOLDER_STYLE = (
     'color: #888888; font-size: 13px; '

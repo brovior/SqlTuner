@@ -25,6 +25,12 @@ from .models import (
     WAIT_CLASS_SUGGESTION,
 )
 from .plan_executor import PlanExecutor
+from ..constants import (
+    DISK_READS_HIGH, DISK_READS_MEDIUM, BUFFER_GETS_MEDIUM,
+    MYSTAT_PHYSICAL_READS_HIGH, MYSTAT_PHYSICAL_READS_MEDIUM,
+    MYSTAT_LOGICAL_READS_HIGH, MYSTAT_LOGICAL_READS_MEDIUM,
+    MYSTAT_REDO_SIZE_HIGH, MYSTAT_REDO_SIZE_MEDIUM,
+)
 
 # 기존 import 경로 호환성 유지 (다른 파일 수정 불필요)
 __all__ = [
@@ -363,17 +369,17 @@ class OracleClient:
             cpu_ms         = row[3] or 0.0
             rows_processed = row[4] or 0
 
-            if disk_reads > 1000:
+            if disk_reads > DISK_READS_HIGH:
                 disk_sev  = 'HIGH'
                 disk_sugg = '물리적 디스크 읽기가 매우 많습니다. 인덱스를 추가하거나 Buffer Cache 크기를 검토하세요.'
-            elif disk_reads > 100:
+            elif disk_reads > DISK_READS_MEDIUM:
                 disk_sev  = 'MEDIUM'
                 disk_sugg = '디스크 읽기가 다소 발생합니다. 인덱스 효율을 확인하세요.'
             else:
                 disk_sev  = 'LOW'
                 disk_sugg = ''
 
-            buf_sev  = 'MEDIUM' if buffer_gets > 100_000 else 'INFO'
+            buf_sev  = 'MEDIUM' if buffer_gets > BUFFER_GETS_MEDIUM else 'INFO'
             buf_sugg = '논리적 읽기가 매우 많습니다. 인덱스 효율을 높이거나 결과셋을 줄이세요.' if buf_sev == 'MEDIUM' else ''
 
             return [
@@ -400,19 +406,19 @@ class OracleClient:
         stat_cfg = {
             'physical reads': {
                 'category': '세션 통계',
-                'hi': 1000, 'med': 100,
+                'hi': MYSTAT_PHYSICAL_READS_HIGH, 'med': MYSTAT_PHYSICAL_READS_MEDIUM,
                 'sugg_hi':  '물리적 디스크 읽기가 많습니다. 인덱스 추가 또는 Buffer Cache 확장을 검토하세요.',
                 'sugg_med': '디스크 읽기가 다소 발생합니다. 인덱스 효율을 확인하세요.',
             },
             'session logical reads': {
                 'category': '세션 통계',
-                'hi': 100_000, 'med': 10_000,
+                'hi': MYSTAT_LOGICAL_READS_HIGH, 'med': MYSTAT_LOGICAL_READS_MEDIUM,
                 'sugg_hi':  '논리적 읽기가 매우 많습니다. 실행 계획 및 인덱스를 검토하세요.',
                 'sugg_med': '논리적 읽기가 다소 많습니다.',
             },
             'redo size': {
                 'category': '세션 통계',
-                'hi': 1_000_000, 'med': 100_000,
+                'hi': MYSTAT_REDO_SIZE_HIGH, 'med': MYSTAT_REDO_SIZE_MEDIUM,
                 'sugg_hi':  'Redo 생성량이 많습니다. DML 배치 최적화를 검토하세요.',
                 'sugg_med': '',
             },
